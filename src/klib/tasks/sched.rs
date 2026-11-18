@@ -11,8 +11,32 @@ pub struct Queue<HW: klib::hal::Hardware> {
 }
 pub type QueueHandle<HW> = Rc<RefCell<Queue<HW>>>;
 
-// NOTE: Most scheduler functions are considered as critical section, so it is safe to turn off interrupts before using any of these!
-//       TODO: Just do that in sched itself :D
+/// An owned thread switch prepared by the scheduler.
+///
+/// The IRQ guard remains on the outgoing thread's stack across the switch and
+/// is released when that thread resumes.
+pub struct SwitchRequest<HW: klib::hal::Hardware> {
+    from: klib::tasks::thread::ThreadHandle<HW>,
+    to: klib::tasks::thread::ThreadHandle<HW>,
+    _irq_disable: klib::irq::DisableGuard<HW>,
+}
+
+impl<HW: klib::hal::Hardware> SwitchRequest<HW> {
+    pub fn switch(self) {
+        let Self {
+            from,
+            to,
+            _irq_disable,
+        } = self;
+        // Keep `_irq_disable` alive across the context switch. It is dropped
+        // only when this thread eventually resumes here.
+        unsafe { klib::tasks::thread::Thread::switch(&from, &to) };
+        drop(_irq_disable);
+    }
+}
+
+// Scheduler mutations that can race with the timer or mutex paths run with
+// interrupts disabled.
 
 const BOOT_THREAD_PRIORITY: i8 = 20;
 
@@ -192,8 +216,8 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         &mut self,
         mutex: klib::tasks::mutex::RawMutexHandle<HW>,
         lock_source: klib::diag::SourceLocation,
-    ) {
-        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        irq_disable: klib::irq::DisableGuard<HW>,
+    ) -> SwitchRequest<HW> {
         self.running_thread
             .as_mut()
             .unwrap()
@@ -207,18 +231,26 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         let old_thread = self.running_thread.as_mut().unwrap().clone();
         assert!(!Rc::ptr_eq(&old_thread, &next_thread));
         self.running_thread = Some(next_thread.clone());
-        unsafe { klib::tasks::thread::Thread::switch(&old_thread, &next_thread) };
-        // ... And we should return here when mutex is released.
+        SwitchRequest {
+            from: old_thread,
+            to: next_thread,
+            _irq_disable: irq_disable,
+        }
     }
     pub fn queue(&mut self, thread: klib::tasks::thread::ThreadHandle<HW>) {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         let queue = self.get_queue(thread.borrow().priority);
         queue.borrow_mut().threads.insert(0, thread);
     }
-    pub fn schedule(&mut self) {
-        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+    /// Updates scheduler state and returns an owned switch request.
+    ///
+    /// The request carries the caller's IRQ state across the handoff. The
+    /// caller must switch stacks only after this method returns, so no mutable
+    /// scheduler borrow remains on the outgoing thread's stack.
+    pub fn prepare_schedule(&mut self) -> Option<SwitchRequest<HW>> {
+        let irq_disable = klib::irq::DisableGuard::<HW>::lock();
         if let Some(next_thread) = self.pick_next_task() {
-            // Note that it is safe to call schedule() before calling init_boot_thread(),
+            // Note that it is safe to call prepare_schedule() before calling init_boot_thread(),
             // as long as it's called before creating any other threads.
             //
             // If there are no other threads to switch, we will never reach here,
@@ -228,8 +260,13 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             let old_thread = &running_thread;
             assert!(!Rc::ptr_eq(old_thread, &next_thread));
             self.running_thread = Some(next_thread.clone());
-            unsafe { klib::tasks::thread::Thread::switch(old_thread, &next_thread) };
+            return Some(SwitchRequest {
+                from: running_thread,
+                to: next_thread,
+                _irq_disable: irq_disable,
+            });
         }
+        None
     }
     pub fn init_boot_thread(&mut self) {
         assert!(self.running_thread.is_none());
@@ -264,6 +301,12 @@ mod tests {
 
     fn selected_priority(queue: Option<QueueHandle<klib::hal::TestHW>>) -> Option<i8> {
         queue.map(|queue| queue.borrow().priority)
+    }
+
+    fn run_schedule(scheduler: &mut Scheduler<klib::hal::TestHW>) {
+        if let Some(switch) = scheduler.prepare_schedule() {
+            switch.switch();
+        }
     }
 
     #[test]
@@ -384,7 +427,7 @@ mod tests {
     fn schedule_without_runnable_tasks_is_a_no_op() {
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
 
-        scheduler.schedule();
+        assert!(scheduler.prepare_schedule().is_none());
 
         assert!(scheduler.running_thread.is_none());
         assert!(scheduler.current_queue.is_none());
@@ -398,7 +441,7 @@ mod tests {
         let worker = make_thread(0);
         scheduler.queue(worker.clone());
 
-        scheduler.schedule();
+        run_schedule(&mut scheduler);
 
         assert!(Rc::ptr_eq(
             scheduler.running_thread.as_ref().unwrap(),
@@ -414,7 +457,7 @@ mod tests {
             &boot_thread
         ));
 
-        scheduler.schedule();
+        run_schedule(&mut scheduler);
 
         assert!(Rc::ptr_eq(
             scheduler.running_thread.as_ref().unwrap(),
@@ -441,7 +484,12 @@ mod tests {
         };
         assert_eq!(mutex.__try_lock(lock_source), Ok(()));
 
-        scheduler.wait_mutex(mutex.clone(), lock_source);
+        let switch = scheduler.wait_mutex(
+            mutex.clone(),
+            lock_source,
+            klib::irq::DisableGuard::<klib::hal::TestHW>::lock(),
+        );
+        switch.switch();
 
         assert!(Rc::ptr_eq(
             scheduler.running_thread.as_ref().unwrap(),
@@ -451,7 +499,7 @@ mod tests {
         assert!(boot_thread.borrow().waiting_mutex.is_some());
 
         mutex.unlock();
-        scheduler.schedule();
+        run_schedule(&mut scheduler);
 
         assert!(Rc::ptr_eq(
             scheduler.running_thread.as_ref().unwrap(),
@@ -476,11 +524,16 @@ mod tests {
             line: 2,
         };
         assert_eq!(mutex.__try_lock(lock_source), Ok(()));
-        scheduler.wait_mutex(mutex.clone(), lock_source);
+        let switch = scheduler.wait_mutex(
+            mutex.clone(),
+            lock_source,
+            klib::irq::DisableGuard::<klib::hal::TestHW>::lock(),
+        );
+        switch.switch();
         boot_thread.borrow_mut().shutdown = true;
         mutex.unlock();
 
-        scheduler.schedule();
+        run_schedule(&mut scheduler);
 
         assert!(Rc::ptr_eq(
             scheduler.running_thread.as_ref().unwrap(),

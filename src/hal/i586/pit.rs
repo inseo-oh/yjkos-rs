@@ -34,7 +34,10 @@ fn short_internal_delay() {
 
 fn irq_handler(_irq_num: u8) {
     klib::ticktime::add(1);
-    kglobals_mut().sched.schedule()
+    let switch = { kglobals_mut().sched.prepare_schedule() };
+    if let Some(switch) = switch {
+        switch.switch();
+    }
 }
 
 pub fn init() {

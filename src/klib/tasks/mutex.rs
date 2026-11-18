@@ -33,17 +33,17 @@ impl<HW: klib::hal::Hardware> RawMutex<HW> {
         self.lock_source.set(loc);
         Ok(())
     }
-    pub fn __lock(
-        self: RawMutexHandle<HW>,
+    pub fn __lock_begin(
+        self: &RawMutexHandle<HW>,
         sched: &mut klib::tasks::sched::Scheduler<HW>,
         loc: klib::diag::SourceLocation,
-    ) {
-        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        if let Ok(o) = self.__try_lock(loc) {
-            o
+    ) -> Result<(), klib::tasks::sched::SwitchRequest<HW>> {
+        let irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        if self.__try_lock(loc).is_ok() {
+            drop(irq_disable);
+            Ok(())
         } else {
-            sched.wait_mutex(self.clone(), loc);
-            assert!(self.locked.load(Ordering::Relaxed));
+            Err(sched.wait_mutex(self.clone(), loc, irq_disable))
         }
     }
     pub fn unlock(&self) {
@@ -70,12 +70,16 @@ impl<HW: klib::hal::Hardware, T> Mutex<HW, T> {
         self.raw_mutex_h.__try_lock(loc)?;
         Ok(MutexGuard(self))
     }
-    pub fn __lock<'a>(
+    pub fn __lock_begin<'a>(
         &'a self,
         sched: &mut klib::tasks::sched::Scheduler<HW>,
         loc: klib::diag::SourceLocation,
-    ) -> MutexGuard<'a, HW, T> {
-        self.raw_mutex_h.clone().__lock(sched, loc);
+    ) -> Result<(), klib::tasks::sched::SwitchRequest<HW>> {
+        self.raw_mutex_h.__lock_begin(sched, loc)
+    }
+    #[doc(hidden)]
+    pub fn __finish_lock(&self) -> MutexGuard<'_, HW, T> {
+        assert!(self.raw_mutex_h.locked.load(Ordering::Relaxed));
         MutexGuard(self)
     }
 }
@@ -102,9 +106,16 @@ impl<'a, HW: klib::hal::Hardware, T> Drop for MutexGuard<'a, HW, T> {
 
 #[macro_export]
 macro_rules! mutex_lock {
-    ($mutex:expr, $scheduler:expr $(,)?) => {
-        ($mutex).__lock($scheduler, $crate::source_location!())
-    };
+    ($mutex:expr, $scheduler:expr $(,)?) => {{
+        let __mutex = &$mutex;
+        match __mutex.__lock_begin($scheduler, $crate::source_location!()) {
+            Ok(()) => __mutex.__finish_lock(),
+            Err(__switch) => {
+                __switch.switch();
+                __mutex.__finish_lock()
+            }
+        }
+    }};
 }
 
 #[macro_export]
