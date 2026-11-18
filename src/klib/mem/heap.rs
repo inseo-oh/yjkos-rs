@@ -380,7 +380,7 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
     }
 
     pub fn expand(
-        heap_mutex: &klib::irq::Mutex<HW, Self>,
+        heap: &klib::irq::Mutex<HW, Self>,
         pmm: &mut klib::mem::PhysicalMemoryManager<HW>,
         vmm: &mut klib::mem::VirtualMemoryManager<HW>,
     ) -> Result<(), &'static str> {
@@ -398,7 +398,7 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
             let object = object.borrow();
             (object.start, object.size)
         };
-        let mut heap_guard = heap_mutex.lock();
+        let mut heap_guard = heap.lock();
         let mut heap = unsafe { Pin::new_unchecked(&mut *heap_guard) };
         unsafe { heap.as_mut().add_mem(start, size) }
     }
