@@ -1,0 +1,23 @@
+# YJK/OS
+
+WIP Rust port of the (YJK/OS)[https://github.com/inseo-oh/yjk-os].
+
+## Build
+
+Building requires Rust nightly with the `rust-src` component, plus the project toolchain and support files in the sibling `../yjkos/` directory. (Toolchain must be built already)
+
+```sh
+./build.sh
+```
+
+The bootable ISO is written to `out/i586/YJKOS_i586.iso`.
+
+## Run
+
+With QEMU installed:
+
+```sh
+./run.sh
+```
+
+Set `YJK_NO_KVM=1` to run QEMU without KVM acceleration.
