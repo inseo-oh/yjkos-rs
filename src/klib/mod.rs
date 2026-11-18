@@ -62,6 +62,13 @@ pub fn kmain<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> ! {
         "{}MiB allocatable memory",
         kglobals.pmm.get_total_mem_size() / (1024 * 1024)
     );
+    print!("> Expanding heap..........................................................");
+    if let Err(e) = mem::Heap::expand(&kglobals.heap, &mut kglobals.pmm, &mut kglobals.vmm) {
+        println!("[FAIL]");
+        println!("warning: failed to expand heap: {}", e);
+    } else {
+        println!("[ OK ]");
+    }
     loop {
         core::hint::spin_loop();
     }

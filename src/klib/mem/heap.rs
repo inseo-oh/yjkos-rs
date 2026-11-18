@@ -378,6 +378,30 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
         }
         unsafe { self.realloc(ptr, new_size * new_elements) }
     }
+
+    pub fn expand(
+        heap_mutex: &klib::irq::Mutex<HW, Self>,
+        pmm: &mut klib::mem::PhysicalMemoryManager<HW>,
+        vmm: &mut klib::mem::VirtualMemoryManager<HW>,
+    ) -> Result<(), &'static str> {
+        let heap_size = pmm.get_total_mem_size();
+        let object = klib::mem::vmm::alloc(
+            &vmm.kernel_address_space(),
+            heap_size,
+            klib::mem::vmm::MapFlags {
+                read: true,
+                write: true,
+                ..Default::default()
+            },
+        )?;
+        let (start, size) = {
+            let object = object.borrow();
+            (object.start, object.size)
+        };
+        let mut heap_guard = heap_mutex.lock();
+        let mut heap = unsafe { Pin::new_unchecked(&mut *heap_guard) };
+        unsafe { heap.as_mut().add_mem(start, size) }
+    }
 }
 
 impl<HW: klib::hal::Hardware> Default for Heap<HW> {
