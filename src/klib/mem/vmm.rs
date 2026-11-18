@@ -28,9 +28,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
             .and_then(|size| size.checked_add(1))
             .expect("invalid kernel virtual memory range");
         self.kernel_address_space
-            .get_or_insert_with(|| {
-                AddressSpace::new(kernel_start as *mut u8, kernel_size, false)
-            })
+            .get_or_insert_with(|| AddressSpace::new(kernel_start as *mut u8, kernel_size, false))
             .clone()
     }
     pub fn address_space_of(&mut self, ptr: *mut u8) -> Option<AddressSpaceHandle<HW>> {
