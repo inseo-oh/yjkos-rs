@@ -239,6 +239,12 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
     }
 }
 
+impl<HW: klib::hal::Hardware> Default for Scheduler<HW> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn dummy_entry_fn(_unused: usize) {
     unreachable!();
 }

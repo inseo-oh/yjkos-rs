@@ -28,11 +28,9 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
             .and_then(|size| size.checked_add(1))
             .expect("invalid kernel virtual memory range");
         self.kernel_address_space
-            .get_or_insert(AddressSpace::new(
-                kernel_start as *mut u8,
-                kernel_size,
-                false,
-            ))
+            .get_or_insert_with(|| {
+                AddressSpace::new(kernel_start as *mut u8, kernel_size, false)
+            })
             .clone()
     }
     pub fn address_space_of(&mut self, ptr: *mut u8) -> Option<AddressSpaceHandle<HW>> {
@@ -170,6 +168,12 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
                 .unwrap();
             address_space.uncommitted_objects.remove(pos);
         }
+    }
+}
+
+impl<HW: klib::hal::Hardware> Default for VirtualMemoryManager<HW> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -331,7 +335,7 @@ pub fn free<HW: klib::hal::Hardware>(
         .borrow_mut()
         .add_object(object);
 }
-pub fn alloc<HW: klib::hal::Hardware>(
+pub fn alloc_at<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     virt_base: *mut u8,
     size: usize,
@@ -339,7 +343,7 @@ pub fn alloc<HW: klib::hal::Hardware>(
 ) -> Result<ObjectHandle<HW>, &'static str> {
     alloc_object_at(address_space, virt_base, None, size, flags)
 }
-pub fn alloc_at<HW: klib::hal::Hardware>(
+pub fn alloc<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     size: usize,
     flags: MapFlags,
@@ -370,7 +374,9 @@ pub fn map_unaligned<HW: klib::hal::Hardware>(
     flags: MapFlags,
 ) -> Result<(ObjectHandle<HW>, *mut u8), &'static str> {
     let offset = phys_base.addr() % HW::PAGE_SIZE;
-    let page_base = phys_base.checked_sub(offset).expect("physical address underflow");
+    let page_base = phys_base
+        .checked_sub(offset)
+        .expect("physical address underflow");
     let actual_size: usize = size.checked_add(offset).ok_or("size too large")?;
     map(address_space, page_base, actual_size, flags)
         .map(|obj| (obj.clone(), unsafe { obj.borrow().start.add(offset) }))
@@ -383,7 +389,9 @@ pub fn map_unaligned_at<HW: klib::hal::Hardware>(
     flags: MapFlags,
 ) -> Result<(ObjectHandle<HW>, *mut u8), &'static str> {
     let offset = phys_base.addr() % HW::PAGE_SIZE;
-    let page_base = phys_base.checked_sub(offset).expect("physical address underflow");
+    let page_base = phys_base
+        .checked_sub(offset)
+        .expect("physical address underflow");
     let actual_size: usize = size.checked_add(offset).ok_or("size too large")?;
     map_at(address_space, virt_base, page_base, actual_size, flags)
         .map(|obj| (obj.clone(), unsafe { obj.borrow().start.add(offset) }))
@@ -511,11 +519,11 @@ pub struct MapFlags {
 
 #[repr(C)]
 pub struct Object<HW> {
-    phys_base: Option<klib::PhysicalPtr>, // None means it allocates pages instead of mapping existing pages.
-    address_space: AddressSpaceHandle<HW>,
-    start: *mut u8,
-    size: usize,
-    flags: MapFlags,
+    pub phys_base: Option<klib::PhysicalPtr>, // None means it allocates pages instead of mapping existing pages.
+    pub address_space: AddressSpaceHandle<HW>,
+    pub start: *mut u8,
+    pub size: usize,
+    pub flags: MapFlags,
 }
 impl<HW: klib::hal::Hardware> Object<HW> {
     fn start_addr(&self) -> usize {
@@ -629,7 +637,10 @@ mod tests {
 
         assert_eq!(allocated.borrow().start_addr(), requested_start.addr());
         assert_eq!(allocated.borrow().size, 2 * PAGE_SIZE);
-        assert_eq!(allocated.borrow().phys_base, Some(klib::PhysicalPtr::new(0x8000)));
+        assert_eq!(
+            allocated.borrow().phys_base,
+            Some(klib::PhysicalPtr::new(0x8000))
+        );
         assert!(allocated.borrow().flags.read);
         assert!(allocated.borrow().flags.write);
 
@@ -774,7 +785,10 @@ mod tests {
         .expect("unaligned physical mapping should fit");
 
         assert_eq!(object.borrow().start_addr(), base.addr());
-        assert_eq!(object.borrow().phys_base, Some(phys_base.checked_sub(offset).unwrap()));
+        assert_eq!(
+            object.borrow().phys_base,
+            Some(phys_base.checked_sub(offset).unwrap())
+        );
         assert_eq!(object.borrow().size, 2 * PAGE_SIZE);
         assert_eq!(mapped_ptr.addr(), base.addr() + offset);
 
@@ -796,7 +810,10 @@ mod tests {
         .expect("unaligned fixed mapping should fit");
 
         assert_eq!(object.borrow().start_addr(), virt_base.addr());
-        assert_eq!(object.borrow().phys_base, Some(phys_base.checked_sub(offset).unwrap()));
+        assert_eq!(
+            object.borrow().phys_base,
+            Some(phys_base.checked_sub(offset).unwrap())
+        );
         assert_eq!(object.borrow().size, PAGE_SIZE);
         assert_eq!(mapped_ptr.addr(), virt_base.addr() + offset);
     }
@@ -1290,7 +1307,10 @@ mod tests {
         assert_eq!(object.size, PAGE_SIZE);
         assert!(object.flags.read);
         assert!(object.flags.write);
-        assert_eq!(mapped.addr(), object.start_addr() + phys_base.addr() % PAGE_SIZE);
+        assert_eq!(
+            mapped.addr(),
+            object.start_addr() + phys_base.addr() % PAGE_SIZE
+        );
         assert_eq!(
             klib::miscmath::size_to_blocks(size + phys_base.addr() % PAGE_SIZE, PAGE_SIZE),
             1,

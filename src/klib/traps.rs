@@ -46,6 +46,12 @@ impl<HW: klib::hal::Hardware> TrapManager<HW> {
     }
 }
 
+impl<HW: klib::hal::Hardware> Default for TrapManager<HW> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

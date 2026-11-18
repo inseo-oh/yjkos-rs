@@ -56,6 +56,12 @@ impl<HW: hal::Hardware> KGlobals<HW> {
     }
 }
 
+impl<HW: hal::Hardware> Default for KGlobals<HW> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn kmain<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> ! {
     println!("Welcome to YJKernel - Copyright (c) 2026 Oh Inseo");
     println!(

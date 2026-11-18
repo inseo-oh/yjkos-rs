@@ -26,22 +26,22 @@ const PIC_ICW4_FLAG_8086MODE: u8 = 1 << 0;
 fn read_irq_reg(read_cmd: u8) -> u16 {
     super::HardwarePortIO::out8(CMD_PORT_MASTER, read_cmd);
     super::HardwarePortIO::out8(CMD_PORT_SLAVE, read_cmd);
-    return ((super::HardwarePortIO::in8(CMD_PORT_SLAVE) as u16) << 8)
-        | super::HardwarePortIO::in8(CMD_PORT_MASTER) as u16;
+    ((super::HardwarePortIO::in8(CMD_PORT_SLAVE) as u16) << 8)
+        | super::HardwarePortIO::in8(CMD_PORT_MASTER) as u16
 }
 
 fn read_irr() -> u16 {
-    return read_irq_reg(CMD_READ_IRR);
+    read_irq_reg(CMD_READ_IRR)
 }
 
 fn read_isr() -> u16 {
-    return read_irq_reg(CMD_READ_ISR);
+    read_irq_reg(CMD_READ_ISR)
 }
 
 fn get_irq_mask() -> u16 {
     let master_mask = super::HardwarePortIO::in8(DATA_PORT_MASTER);
     let slave_mask = super::HardwarePortIO::in8(DATA_PORT_SLAVE);
-    return ((slave_mask as u16) << 8) | master_mask as u16;
+    ((slave_mask as u16) << 8) | master_mask as u16
 }
 
 fn set_irq_mask(mask: u16) {
@@ -66,7 +66,7 @@ fn check_spurious_irq(irq: u8) -> bool {
         }
         return !is_real;
     }
-    return false;
+    false
 }
 
 pub fn send_eoi(irq: u8) {
@@ -77,7 +77,7 @@ pub fn send_eoi(irq: u8) {
 }
 
 pub fn is_irq_masked(irq: u8) -> bool {
-    return (get_irq_mask() & (1 << irq)) != 0;
+    (get_irq_mask() & (1 << irq)) != 0
 }
 
 pub fn mask_irq(irq: u8) {

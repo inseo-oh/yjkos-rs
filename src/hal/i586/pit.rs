@@ -11,21 +11,21 @@ const PIT_FREQ: u32 = 1193182;
 const PIT_MODE_FLAG_SELECT_CH0: u8 = 0 << 6; //Channel select (Bit 7:6)
 const PIT_MODE_FLAG_ACCESS_LSB_MSB: u8 = 3 << 4; // Access mode (Bit 5:4)
 const PIT_MODE_FLAG_OP_RATEGEN: u8 = 2 << 1; // Operation mode (Bit 3:1)
-const PIT_MODE_FLAG_BINMODE: u8 = 0 << 0; // Binary/BCD mode (Bit 0)
+const PIT_MODE_FLAG_BINMODE: u8 = 0; // Binary/BCD mode (Bit 0)
 
 const PIT_IRQ: u8 = 0;
 const FREQ_MILLIS: u32 = 1;
 
 const fn counter_value_from_hz(hz: u32) -> u16 {
-    return (PIT_FREQ / hz) as u16;
+    (PIT_FREQ / hz) as u16
 }
 
 const fn hz_from_millis(millis: u32) -> u32 {
-    return 1000 / millis;
+    1000 / millis
 }
 
 fn counter_from_millis(millis: u32) -> u16 {
-    return counter_value_from_hz(hz_from_millis(millis));
+    counter_value_from_hz(hz_from_millis(millis))
 }
 
 fn short_internal_delay() {
