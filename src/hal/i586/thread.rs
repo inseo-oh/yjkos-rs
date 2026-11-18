@@ -20,9 +20,7 @@ const STACK_ITEM_COUNT: usize = 8;
 const STACK_MIN_SIZE: usize = STACK_ITEM_COUNT * size_of::<u32>();
 
 fn exit_callback() {
-    loop {
-        core::hint::spin_loop();
-    }
+    klib::tasks::thread::thread_entry_returned()
 }
 
 pub fn create(init_stack_size: usize, init_main_func: fn(data: usize), init_data: usize) -> Thread {

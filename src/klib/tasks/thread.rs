@@ -1,8 +1,23 @@
 use crate::klib;
 use alloc::rc::Rc;
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 pub const THREAD_STACK_SIZE: usize = 1024 * 16;
+
+// This is only for testing, for now.
+static RETURNED_ENTRY_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) fn thread_entry_returned_count() -> usize {
+    RETURNED_ENTRY_COUNT.load(Ordering::Relaxed)
+}
+
+pub(crate) fn thread_entry_returned() -> ! {
+    RETURNED_ENTRY_COUNT.fetch_add(1, Ordering::Relaxed);
+    loop {
+        core::hint::spin_loop();
+    }
+}
 
 pub struct Thread<HW: klib::hal::Hardware> {
     arch_thread: HW::Thread,
