@@ -249,6 +249,8 @@ hal_i586_stack_bottom_trap_end:
 hal_i586_stack_bottom:
 .skip 16384
 hal_i586_stack_top:
+
+.section .text
 "#,
     mmu_kernel_pde_count = const super::mmu::KERNEL_PDE_COUNT,
     mmu_entry_count = const super::mmu::ENTRY_COUNT,
