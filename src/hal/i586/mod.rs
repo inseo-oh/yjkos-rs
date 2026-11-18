@@ -9,6 +9,7 @@ mod pic;
 mod pit;
 mod sections;
 mod stacktrace;
+mod thread;
 mod traps;
 
 use crate::klib;
@@ -93,10 +94,25 @@ impl klib::hal::Hardware for Hardware {
         mmu::scratch_map(phys_base, no_cache);
     }
 
+    // Threading ===============================================================
+
+    type Thread = thread::Thread;
+
+    fn thread_create(
+        init_stack_size: usize,
+        init_main_func: fn(data: usize),
+        init_data: usize,
+    ) -> Self::Thread {
+        thread::create(init_stack_size, init_main_func, init_data)
+    }
+
+    unsafe fn thread_switch(from: *mut Self::Thread, to: *mut Self::Thread) {
+        unsafe { thread::switch(from, to) };
+    }
+
     // Other stuff =============================================================
 
     type TrapFrame = traps::TrapFrame;
-    type Thread = ();
 
     fn hcf() -> ! {
         loop {
@@ -110,18 +126,6 @@ impl klib::hal::Hardware for Hardware {
     }
     fn stack_trace() {
         stacktrace::current();
-    }
-
-    fn thread_create(
-        _init_stack_size: usize,
-        _init_main_func: fn(data: usize),
-        _init_data: usize,
-    ) -> Self::Thread {
-        todo!()
-    }
-
-    unsafe fn thread_switch(_from: *mut Self::Thread, _to: *mut Self::Thread) {
-        todo!()
     }
 }
 

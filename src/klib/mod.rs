@@ -75,6 +75,10 @@ pub fn kmain<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> ! {
     } else {
         println!("[ OK ]");
     }
+    println!("> Initialize boot thread (ignore the 0k stack it says)");
+    kglobals.sched.init_boot_thread();
+    println!(">> DONE");
+
     loop {
         core::hint::spin_loop();
     }

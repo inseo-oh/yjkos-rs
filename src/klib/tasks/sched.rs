@@ -218,8 +218,9 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
     pub fn schedule(&mut self) {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         if let Some(next_thread) = self.pick_next_task() {
-            // Note that it is safe to call schedule() before calling init_boot_thread(), as long as it's called before creating
-            // any other threads.
+            // Note that it is safe to call schedule() before calling init_boot_thread(),
+            // as long as it's called before creating any other threads.
+            //
             // If there are no other threads to switch, we will never reach here,
             // so it doesn't trip below assertion.
             let running_thread = self.running_thread.clone().unwrap();
