@@ -57,5 +57,24 @@ unsafe impl GlobalAlloc for GlobalAllocator {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
+    use crate::klib::hal::Hardware;
+
+    hal::Hardware::irq_disable();
+    println!();
+    println!();
+    println!("FATAL SOFTWARE FAILURE -- SYSTEM NEEDS TO RESTART.");
+    println!("{}", _info.message());
+    if let Some(location) = _info.location() {
+        println!(
+            "at: {}:{}:{}",
+            location.file(),
+            location.line(),
+            location.column()
+        );
+    }
+
+    hal::Hardware::stack_trace();
+    loop {
+        core::hint::spin_loop();
+    }
 }
