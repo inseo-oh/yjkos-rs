@@ -63,6 +63,13 @@ impl<HW: hal::Hardware> Default for KGlobals<HW> {
 }
 
 pub fn kmain<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> ! {
+    let kglobals = initialize(kglobals);
+    // SAFETY: `initialize` returns the unique global pointer after its mutable
+    // reference has expired. The diagnostic owns its accesses while it runs.
+    unsafe { diag::thread::run(kglobals, diag::thread::DEFAULT_DURATION_SECS) }
+}
+
+fn initialize<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> *mut KGlobals<HW> {
     println!("Welcome to YJKernel - Copyright (c) 2026 Oh Inseo");
     println!(
         "{}MiB allocatable memory",
@@ -78,8 +85,5 @@ pub fn kmain<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> ! {
     println!("> Initialize boot thread (ignore the 0k stack it says)");
     kglobals.sched.init_boot_thread();
     println!(">> DONE");
-
-    loop {
-        core::hint::spin_loop();
-    }
+    kglobals
 }

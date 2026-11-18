@@ -1,3 +1,5 @@
+pub mod thread;
+
 #[derive(Clone, Copy)]
 pub struct SourceLocation {
     pub file_name: &'static str,
