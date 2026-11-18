@@ -34,6 +34,7 @@ pub trait Hardware {
     fn mmu_flush_tlb_for(ptr: *mut u8);
     fn mmu_scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool);
     fn stack_trace_for_trap_frame(trap_frame: &Self::TrapFrame);
+    fn stack_trace();
     fn thread_create(
         init_stack_size: usize,
         init_main_func: fn(data: usize),
@@ -117,6 +118,7 @@ impl Hardware for TestHW {
         Ok(())
     }
     fn mmu_flush_tlb_for(_ptr: *mut u8) {}
+    fn stack_trace() {}
     fn stack_trace_for_trap_frame(_trap_frame: &Self::TrapFrame) {}
     fn thread_create(
         init_stack_size: usize,

@@ -17,9 +17,7 @@ use core::arch::asm;
 pub static SERIAL: klib::irq::Mutex<
     Hardware,
     klib::devlib::serial_i8250::SerialI8250<HardwarePortIO>,
-> = klib::irq::Mutex::new(klib::devlib::serial_i8250::SerialI8250::new(
-    0x3f8, 115200,
-));
+> = klib::irq::Mutex::new(klib::devlib::serial_i8250::SerialI8250::new(0x3f8, 115200));
 
 fn write_serial(args: core::fmt::Arguments<'_>) -> core::fmt::Result {
     let mut serial = SERIAL.lock();
@@ -109,6 +107,9 @@ impl klib::hal::Hardware for Hardware {
 
     fn stack_trace_for_trap_frame(trap_frame: &Self::TrapFrame) {
         stacktrace::for_trap_frame(trap_frame);
+    }
+    fn stack_trace() {
+        stacktrace::current();
     }
 
     fn thread_create(
