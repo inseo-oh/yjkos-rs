@@ -52,7 +52,7 @@ pub fn create(init_stack_size: usize, init_main_func: fn(data: usize), init_data
     stack[esp + STACK_IDX_MAIN_ARG0] = init_data as u32;
     stack[esp + STACK_IDX_EIP] = init_main_func as *const () as u32;
     stack[esp + STACK_IDX_EBP] = 0;
-    stack[esp + STACK_IDX_EFLAGS] = 0;
+    stack[esp + STACK_IDX_EFLAGS] = super::EFLAGS_FLAG_IF;
     stack[esp + STACK_IDX_EBX] = 0;
     stack[esp + STACK_IDX_ESI] = 0;
     stack[esp + STACK_IDX_EDI] = 0;
