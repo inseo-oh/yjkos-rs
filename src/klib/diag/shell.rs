@@ -6,7 +6,7 @@ use alloc::{
 };
 
 struct PrintCommand;
-impl Command for PrintCommand {
+impl<HW: klib::hal::Hardware> Command<HW> for PrintCommand {
     fn name(&self) -> &'static str {
         "print"
     }
@@ -27,14 +27,47 @@ impl Command for PrintCommand {
         }
     }
 
-    fn execute(&self, _arguments: &[String]) {
+    fn execute(&self, _arguments: &[String], _kglobals: *mut klib::KGlobals<HW>) {
         println!("hello, world!");
     }
 }
 
-fn commands() -> Vec<Box<dyn Command>> {
-    let mut commands: Vec<Box<dyn Command>> = Vec::new();
+struct TestCommand;
+impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
+    fn name(&self) -> &'static str {
+        "test"
+    }
+    fn help(&self) -> &'static str {
+        "run a diagnostic test"
+    }
+    fn parameter(
+        &self,
+        _arguments: &[String],
+        argument_index: usize,
+    ) -> Option<Box<dyn Completable>> {
+        match argument_index {
+            0 => Some(KeywordParameter::new(&[Keyword::new(
+                "thread",
+                "run the multithreading stress test",
+            )])),
+            _ => None,
+        }
+    }
+
+    fn execute(&self, arguments: &[String], kglobals: *mut klib::KGlobals<HW>) {
+        if arguments.first().is_some_and(|arg| arg == "thread") {
+            // SAFETY: Shell retains this pointer to the live kernel globals.
+            unsafe { klib::diag::thread::run(kglobals, klib::diag::thread::DEFAULT_DURATION_SECS) }
+        } else {
+            println!("usage: test thread");
+        }
+    }
+}
+
+fn commands<HW: klib::hal::Hardware>() -> Vec<Box<dyn Command<HW>>> {
+    let mut commands: Vec<Box<dyn Command<HW>>> = Vec::new();
     commands.push(Box::new(PrintCommand));
+    commands.push(Box::new(TestCommand));
     commands
 }
 
@@ -74,7 +107,7 @@ impl Completable for KeywordParameter {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-trait Command {
+trait Command<HW: klib::hal::Hardware> {
     fn name(&self) -> &'static str;
     fn help(&self) -> &'static str;
     fn parameter(
@@ -82,11 +115,11 @@ trait Command {
         arguments: &[String],
         argument_index: usize,
     ) -> Option<Box<dyn Completable>>;
-    fn execute(&self, arguments: &[String]);
+    fn execute(&self, arguments: &[String], kglobals: *mut klib::KGlobals<HW>);
 }
 
-struct CommandNameCompletion<'a>(&'a [Box<dyn Command>]);
-impl<'a> Completable for CommandNameCompletion<'a> {
+struct CommandNameCompletion<'a, HW: klib::hal::Hardware>(&'a [Box<dyn Command<HW>>]);
+impl<HW: klib::hal::Hardware> Completable for CommandNameCompletion<'_, HW> {
     fn choices(&self) -> Vec<Suggestion> {
         self.0
             .iter()
@@ -124,12 +157,12 @@ trait Completable {
     }
 }
 
-pub struct Shell {
+pub struct Shell<HW: klib::hal::Hardware> {
     command_buf: String,
-    commands: Vec<Box<dyn Command>>,
+    commands: Vec<Box<dyn Command<HW>>>,
 }
 
-impl Shell {
+impl<HW: klib::hal::Hardware> Shell<HW> {
     pub fn new() -> Self {
         Self {
             command_buf: String::new(),
@@ -206,7 +239,7 @@ impl Shell {
         }
         Ok(new_comps.join(" "))
     }
-    fn execute(&self) -> Result<(), &'static str> {
+    fn execute(&self, kglobals: *mut klib::KGlobals<HW>) -> Result<(), &'static str> {
         let components = self.command_components();
         let cmd_sugg = CommandNameCompletion(&self.commands).try_autocomplete(components[0])?;
         let cmd = self
@@ -219,10 +252,11 @@ impl Shell {
                 .iter()
                 .map(|s| s.to_string())
                 .collect::<Vec<String>>(),
+            kglobals,
         );
         Ok(())
     }
-    fn prompt(&mut self) {
+    fn prompt(&mut self, kglobals: *mut klib::KGlobals<HW>) {
         print!("diag> {}", self.command_buf);
         'input: loop {
             let c = klib::console::read().unwrap();
@@ -233,7 +267,7 @@ impl Shell {
                         match self.try_autocomplete() {
                             Ok(v) => {
                                 self.command_buf = v;
-                                if let Err(e) = self.execute() {
+                                if let Err(e) = self.execute(kglobals) {
                                     println!("bad command: {}: {}", &self.command_buf, e)
                                 }
                             }
@@ -274,14 +308,17 @@ impl Shell {
             }
         }
     }
-    pub fn run(&mut self) {
+    /// # Safety
+    /// `kglobals` must point to the live kernel globals for the shell's lifetime.
+    /// Contextual commands may retain and access it across thread switches.
+    pub unsafe fn run(&mut self, kglobals: *mut klib::KGlobals<HW>) -> ! {
         loop {
-            self.prompt()
+            self.prompt(kglobals)
         }
     }
 }
 
-impl Default for Shell {
+impl<HW: klib::hal::Hardware> Default for Shell<HW> {
     fn default() -> Self {
         Self::new()
     }

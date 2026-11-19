@@ -64,9 +64,12 @@ impl<HW: hal::Hardware> Default for KGlobals<HW> {
 
 pub fn kmain<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> ! {
     let kglobals = initialize(kglobals);
-    // SAFETY: `initialize` returns the unique global pointer after its mutable
-    // reference has expired. The diagnostic owns its accesses while it runs.
-    unsafe { diag::thread::run(kglobals, diag::thread::DEFAULT_DURATION_SECS) }
+    // SAFETY: `initialize` returns after its mutable borrow has expired, and
+    // KGlobals remains live for the lifetime of the kernel shell.
+    let mut shell = diag::Shell::new();
+    // SAFETY: `initialize` returned the live global pointer after its mutable
+    // borrow expired; the kernel globals outlive this shell.
+    unsafe { shell.run(kglobals) }
 }
 
 fn initialize<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> *mut KGlobals<HW> {
@@ -86,10 +89,6 @@ fn initialize<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> *mut KGlobals<H
     kglobals.sched.init_boot_thread();
 
     println!(">> DONE");
-
-    println!();
-    let mut diag = diag::Shell::new();
-    diag.run();
 
     kglobals
 }

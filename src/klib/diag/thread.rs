@@ -101,6 +101,7 @@ fn return_worker(_data: usize) {}
 /// `kglobals` must point to the live kernel globals for the full duration of
 /// this call. The diagnostic keeps running after its checks finish.
 pub unsafe fn run<HW: Hardware>(kglobals: *mut klib::KGlobals<HW>, duration_secs: u32) -> ! {
+    assert!(!kglobals.is_null());
     assert!(duration_secs >= 5, "diagnostic needs at least 5 seconds");
     println!(
         "> Multithreading stress test ({} workers, {}s)",
