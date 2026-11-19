@@ -198,10 +198,13 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
         argument_index: usize,
     ) -> Option<Box<dyn Completable>> {
         match argument_index {
-            0 => Some(KeywordParameter::new(&[Keyword::new(
-                "thread",
-                "run the multithreading stress test",
-            )])),
+            0 => Some(KeywordParameter::new(&[
+                Keyword::new("thread", "run the multithreading stress test"),
+                Keyword::new(
+                    "usermode",
+                    "test entering ring 3 (ends at the expected general protection fault)",
+                ),
+            ])),
             _ => None,
         }
     }
@@ -213,10 +216,72 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
             {
                 println!("[FAIL] {}", error);
             }
+        } else if arguments.first().is_some_and(|arg| arg == "usermode") {
+            test_user_mode::<HW>(kglobals);
         } else {
-            println!("usage: test thread");
+            println!("usage: test <thread|usermode>");
         }
     }
+}
+
+const USER_MODE_TEST_BASE: usize = 0x8000_0000;
+
+fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &klib::KGlobals<HW>) {
+    let user_pages = match kglobals.pmm.lock().malloc(2) {
+        Ok(pages) => pages,
+        Err(error) => {
+            println!("[FAIL] Could not allocate user-mode test pages: {}", error);
+            return;
+        }
+    };
+
+    let user_base = USER_MODE_TEST_BASE as *mut u8;
+    let mapping_result = {
+        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        HW::mmu_map(
+            user_base,
+            user_pages.base,
+            1,
+            klib::mem::vmm::MapFlags {
+                read: true,
+                write: false,
+                exec: true,
+                no_cache: false,
+            },
+            true,
+        )
+        .and_then(|()| {
+            HW::mmu_map(
+                unsafe { user_base.add(HW::PAGE_SIZE) },
+                klib::PhysicalPtr::new(user_pages.base.addr() + HW::PAGE_SIZE),
+                1,
+                klib::mem::vmm::MapFlags {
+                    read: true,
+                    write: true,
+                    exec: false,
+                    no_cache: false,
+                },
+                true,
+            )
+        })
+    };
+    if let Err(error) = mapping_result {
+        println!("[FAIL] Could not map user-mode test pages: {}", error);
+        return;
+    }
+
+    // CLI is privileged at CPL 3 with IOPL 0, so reaching this byte from
+    // user mode must raise #GP. The normal exception handler prints the trap
+    // frame, including CS with RPL 3, then halts the machine.
+    {
+        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        HW::mmu_scratch_map(user_pages.base, false);
+        unsafe { core::ptr::write_volatile(HW::SCRATCH_MAP_BASE, 0xfa) };
+    }
+
+    let user_stack_top = USER_MODE_TEST_BASE + 2 * HW::PAGE_SIZE - 16;
+    println!("Entering ring 3. Expected result: #GP from CLI with CS RPL 3.");
+    unsafe { HW::enter_user_mode(USER_MODE_TEST_BASE, user_stack_top) };
 }
 
 fn commands<HW: klib::hal::Hardware>() -> Vec<Box<dyn Command<HW>>> {

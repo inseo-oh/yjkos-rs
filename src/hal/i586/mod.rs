@@ -12,6 +12,7 @@ mod sections;
 mod stacktrace;
 mod thread;
 mod traps;
+mod usermode;
 
 use crate::klib;
 use core::arch::asm;
@@ -114,6 +115,10 @@ impl klib::hal::Hardware for Hardware {
 
     unsafe fn thread_switch(from: *mut Self::Thread, to: *mut Self::Thread) {
         unsafe { thread::switch(from, to) };
+    }
+
+    unsafe fn enter_user_mode(entry: usize, user_stack: usize) -> ! {
+        unsafe { usermode::enter_user_mode(entry, user_stack) }
     }
 
     // Other stuff =============================================================

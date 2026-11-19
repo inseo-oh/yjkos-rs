@@ -169,6 +169,8 @@ struct GlobalDescriptorTable {
     null_descriptor: SegmentDescriptor,
     kernel_code: SegmentDescriptor,
     kernel_data: SegmentDescriptor,
+    user_code: SegmentDescriptor,
+    user_data: SegmentDescriptor,
     tss: SegmentDescriptor,
 }
 impl GlobalDescriptorTable {
@@ -177,6 +179,8 @@ impl GlobalDescriptorTable {
             null_descriptor: SegmentDescriptor::null(),
             kernel_code: SegmentDescriptor::null(),
             kernel_data: SegmentDescriptor::null(),
+            user_code: SegmentDescriptor::null(),
+            user_data: SegmentDescriptor::null(),
             tss: SegmentDescriptor::null(),
         }
     }
@@ -203,6 +207,27 @@ impl GlobalDescriptorTable {
                     | GDT_ACCESS_FLAG_S
                     | GDT_ACCESS_FLAG_RW
                     | GDT_ACCESS_FLAG_DPL0
+                    | GDT_ACCESS_FLAG_ACCESSED,
+            ),
+            user_code: SegmentDescriptor::new(
+                0,
+                0xfffff,
+                GDT_FLAG_G | GDT_FLAG_DB,
+                GDT_ACCESS_FLAG_P
+                    | GDT_ACCESS_FLAG_S
+                    | GDT_ACCESS_FLAG_RW
+                    | GDT_ACCESS_FLAG_DPL3
+                    | GDT_ACCESS_FLAG_E
+                    | GDT_ACCESS_FLAG_ACCESSED,
+            ),
+            user_data: SegmentDescriptor::new(
+                0,
+                0xfffff,
+                GDT_FLAG_G | GDT_FLAG_DB,
+                GDT_ACCESS_FLAG_P
+                    | GDT_ACCESS_FLAG_S
+                    | GDT_ACCESS_FLAG_RW
+                    | GDT_ACCESS_FLAG_DPL3
                     | GDT_ACCESS_FLAG_ACCESSED,
             ),
             tss: SegmentDescriptor::new(
@@ -286,4 +311,6 @@ pub(super) unsafe fn reload_selectors() {
 
 pub const GDT_KERNEL_CS: u16 = offset_of!(GlobalDescriptorTable, kernel_code) as u16;
 pub const GDT_KERNEL_DS: u16 = offset_of!(GlobalDescriptorTable, kernel_data) as u16;
+pub const GDT_USER_CS: u16 = offset_of!(GlobalDescriptorTable, user_code) as u16 | 3;
+pub const GDT_USER_DS: u16 = offset_of!(GlobalDescriptorTable, user_data) as u16 | 3;
 pub const GDT_TSS: u16 = offset_of!(GlobalDescriptorTable, tss) as u16;

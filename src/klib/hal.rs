@@ -42,6 +42,11 @@ pub trait Hardware {
         init_data: usize,
     ) -> Self::Thread;
     /// # Safety
+    /// `entry` and `user_stack` must be valid user-accessible addresses. The
+    /// architecture's GDT, TSS, IDT, and trap handlers must be initialized so
+    /// that user-mode traps can safely enter the kernel.
+    unsafe fn enter_user_mode(entry: usize, user_stack: usize) -> !;
+    /// # Safety
     /// `from` and `to` must be distinct, valid, stable context pointers. No Rust
     /// references to either context may remain live while this call switches
     /// stacks. Access to each context must be serialized: no other CPU or
@@ -132,6 +137,9 @@ impl Hardware for TestHW {
             init_data,
             switch_count: 0,
         }
+    }
+    unsafe fn enter_user_mode(_entry: usize, _user_stack: usize) -> ! {
+        panic!("TestHW cannot enter user mode");
     }
     fn mmu_scratch_map(_phys_base: klib::PhysicalPtr, _no_cache: bool) {}
     unsafe fn thread_switch(from: *mut Self::Thread, to: *mut Self::Thread) {
