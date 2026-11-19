@@ -11,20 +11,20 @@ use core::{
 #[repr(C, align(16))]
 struct HeapAlignment([u8; 0]);
 #[repr(align(16))]
-struct InitialHeapMemory([u8; 1024 * 1024 * 2]);
+pub(in crate::klib) struct InitialHeapMemory([u8; 1024 * 1024 * 2]);
 
 #[repr(C)]
-struct Pool {
+pub(in crate::klib) struct Pool {
     block_pool_p: *mut u8,
     block_bitmap: klib::Bitmap<'static>,
-    block_count: usize,
-    used_block_count: usize,
-    page_count: usize,
+    pub(in crate::klib) block_count: usize,
+    pub(in crate::klib) used_block_count: usize,
+    pub(in crate::klib) page_count: usize,
     heap_data: HeapAlignment,
 }
 type PoolHeader = klib::list::Node<Pool>;
 #[repr(C)]
-struct AllocHeaderData {
+pub(in crate::klib) struct AllocHeaderData {
     block_count: usize,
     pool_p: *mut PoolHeader,
     size: usize,
@@ -40,7 +40,7 @@ impl AllocHeaderData {
 }
 type AllocHeader = klib::list::Node<AllocHeaderData>;
 
-const BLOCK_SIZE: usize = 64;
+pub(in crate::klib) const BLOCK_SIZE: usize = 64;
 const POISON_VALUES: [u8; 8] = [0xe9, 0x29, 0xf3, 0xfb, 0xd7, 0x67, 0xaa, 0x5a];
 const ALLOC_HEADER_LOCATOR_SIZE: usize = size_of::<usize>();
 const MIN_ALLOC_ALIGNMENT: usize = align_of::<HeapAlignment>();
@@ -84,8 +84,8 @@ unsafe fn alloc_header_of(ptr: *mut u8) -> Option<NonNull<AllocHeader>> {
 }
 
 pub struct Heap<HW> {
-    free_block_count: usize,
-    heap_pool_list: klib::UnsafeList<Pool>,
+    pub(in crate::klib) free_block_count: usize,
+    pub(in crate::klib) heap_pool_list: klib::UnsafeList<Pool>,
     alloc_list: klib::UnsafeList<AllocHeaderData>,
     initial_heap_memory: InitialHeapMemory,
     initial_heap_initialized: bool,

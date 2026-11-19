@@ -7,6 +7,7 @@ mod isr_entry;
 mod mmu;
 mod pic;
 mod pit;
+mod reboot;
 mod sections;
 mod stacktrace;
 mod thread;
@@ -119,6 +120,9 @@ impl klib::hal::Hardware for Hardware {
 
     type TrapFrame = traps::TrapFrame;
 
+    fn reboot() {
+        reboot::reboot();
+    }
     fn hcf() -> ! {
         loop {
             unsafe { cli() };

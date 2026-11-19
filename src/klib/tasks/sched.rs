@@ -5,9 +5,9 @@ use alloc::{rc::Rc, vec::Vec};
 
 pub struct Queue<HW: klib::hal::Hardware> {
     // Lower value -> Higher priority (similar to UNIX niceness).
-    priority: i8,
-    opportunities: usize,
-    threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    pub(in crate::klib) priority: i8,
+    pub(in crate::klib) opportunities: usize,
+    pub(in crate::klib) threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
 }
 pub type QueueHandle<HW> = Rc<RefCell<Queue<HW>>>;
 
@@ -49,10 +49,10 @@ pub struct Scheduler<HW: klib::hal::Hardware> {
     //
     // When opportunities become zero, that queue is no longer selected, thus lower
     // priority queues are selected less than higher priority ones.
-    queues: Vec<QueueHandle<HW>>,
+    pub(in crate::klib) queues: Vec<QueueHandle<HW>>,
     current_queue: Option<QueueHandle<HW>>,
     running_thread: Option<klib::tasks::thread::ThreadHandle<HW>>,
-    mutex_wait_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    pub(in crate::klib) mutex_wait_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
 }
 
 impl<HW: klib::hal::Hardware> Scheduler<HW> {

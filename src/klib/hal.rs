@@ -11,6 +11,7 @@ pub trait Hardware {
     type TrapFrame;
     type Thread;
 
+    fn reboot();
     fn hcf() -> !;
     fn irq_enabled() -> bool;
     fn irq_disable();
@@ -139,4 +140,6 @@ impl Hardware for TestHW {
         from.switch_count += 1;
         to.switch_count += 1;
     }
+
+    fn reboot() {}
 }

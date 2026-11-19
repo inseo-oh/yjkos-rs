@@ -5,6 +5,27 @@ use alloc::{
     vec::Vec,
 };
 
+struct RebootCommand;
+impl<HW: klib::hal::Hardware> Command<HW> for RebootCommand {
+    fn name(&self) -> &'static str {
+        "reboot"
+    }
+    fn help(&self) -> &'static str {
+        "reboots the system"
+    }
+    fn parameter(
+        &self,
+        _arguments: &[String],
+        _argument_index: usize,
+    ) -> Option<Box<dyn Completable>> {
+        None
+    }
+
+    fn execute(&self, arguments: &[String], kglobals: &klib::KGlobals<HW>) {
+        HW::reboot();
+    }
+}
+
 struct ShowCommand;
 impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
     fn name(&self) -> &'static str {
@@ -22,6 +43,9 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             0 => Some(KeywordParameter::new(&[
                 Keyword::new("pmemory", "physical memory"),
                 Keyword::new("vmemory", "virtual memory"),
+                Keyword::new("hmemory", "kernel heap memory"),
+                Keyword::new("scheduler", "task scheduler"),
+                Keyword::new("ticktime", "ticktime value"),
             ])),
             _ => None,
         }
@@ -105,6 +129,55 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             }
             println!();
             println!("FLAGS: R=Read, W=Write, I=(cache)Inhibit");
+        } else if typ == "hmemory" {
+            println!("# Heap memory information");
+            let heap = kglobals.heap.lock();
+            println!();
+            println!(
+                "| NO. | TOTAL               | USED                      | PAGE COUNT           |"
+            );
+            println!(
+                "+-----+---------------------+---------------------------+----------------------+"
+            );
+            for (n, pool) in heap.heap_pool_list.iter().enumerate() {
+                println!(
+                    "| {:3} | {:7} ({:6}KiB) | {:7} ({:6}KiB, {:3}%) | {:7} ({:7}KiB) |",
+                    n,
+                    pool.block_count,
+                    (pool.block_count * klib::mem::heap::BLOCK_SIZE) / 1024,
+                    pool.used_block_count,
+                    (pool.used_block_count * klib::mem::heap::BLOCK_SIZE) / 1024,
+                    (pool.used_block_count * 100) / pool.block_count,
+                    pool.page_count,
+                    (pool.page_count * HW::PAGE_SIZE) / 1024,
+                );
+            }
+            println!();
+            println!(
+                "Total free memory is {} blocks ({}KiB)",
+                heap.free_block_count,
+                (heap.free_block_count * klib::mem::heap::BLOCK_SIZE) / 1024
+            );
+        } else if typ == "scheduler" {
+            println!("# Scheduler queue information");
+            let sched = kglobals.sched.lock();
+            println!();
+            println!("| NO. | PRIORITY | OPPORTUNITIES | THREADS |");
+            println!("+-----+----------+---------------+---------+");
+            for (n, queue_h) in sched.queues.iter().enumerate() {
+                let queue = queue_h.borrow();
+                println!(
+                    "| {:3} | {:3} | {:3} | {:10} |",
+                    n,
+                    queue.priority,
+                    queue.opportunities,
+                    queue.threads.len(),
+                );
+            }
+            println!();
+            println!("Mutex waiting threads: {}", sched.mutex_wait_threads.len());
+        } else if typ == "ticktime" {
+            println!("Current ticktime: {}", klib::ticktime::load());
         } else {
             unreachable!();
         }
@@ -150,6 +223,7 @@ fn commands<HW: klib::hal::Hardware>() -> Vec<Box<dyn Command<HW>>> {
     let mut commands: Vec<Box<dyn Command<HW>>> = Vec::new();
     commands.push(Box::new(ShowCommand));
     commands.push(Box::new(TestCommand));
+    commands.push(Box::new(RebootCommand));
     commands
 }
 
