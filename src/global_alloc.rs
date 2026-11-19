@@ -6,8 +6,7 @@ use core::{
 };
 
 fn heap_mutex() -> &'static klib::irq::Mutex<hal::Hardware, klib::mem::Heap<hal::Hardware>> {
-    // SAFETY: KGLOBALS is statically allocated, and heap access is serialized by this mutex.
-    unsafe { &*core::ptr::addr_of!(KGLOBALS.heap) }
+    &KGLOBALS.heap
 }
 
 struct GlobalAllocator;

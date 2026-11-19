@@ -25,8 +25,8 @@ static MUTEX_OWNER_READY: AtomicUsize = AtomicUsize::new(0);
 static MUTEX_CONTENDER_WAITING: AtomicUsize = AtomicUsize::new(0);
 static MUTEX_CONTENDER_ACQUIRED: AtomicUsize = AtomicUsize::new(0);
 
-struct WorkerContext<HW: Hardware> {
-    kglobals: *mut klib::KGlobals<HW>,
+struct WorkerContext<'a, HW: Hardware> {
+    kglobals: &'a klib::KGlobals<HW>,
     mutex: *const klib::tasks::mutex::Mutex<HW, usize>,
     thread_index: usize,
 }
@@ -64,7 +64,7 @@ fn stress_worker<HW: Hardware>(data: usize) {
     let mutex = unsafe { &*context.mutex };
 
     if context.thread_index == 0 {
-        let mut shared = crate::mutex_lock!(mutex, unsafe { &mut (*context.kglobals).sched });
+        let mut shared = crate::mutex_lock!(mutex, &context.kglobals.sched);
         MUTEX_OWNER_READY.store(1, Ordering::Release);
         let start_tick = klib::ticktime::load();
         while MUTEX_CONTENDER_WAITING.load(Ordering::Acquire) == 0
@@ -78,7 +78,7 @@ fn stress_worker<HW: Hardware>(data: usize) {
             core::hint::spin_loop();
         }
         MUTEX_CONTENDER_WAITING.store(1, Ordering::Release);
-        let mut shared = crate::mutex_lock!(mutex, unsafe { &mut (*context.kglobals).sched });
+        let mut shared = crate::mutex_lock!(mutex, &context.kglobals.sched);
         *shared = shared.wrapping_add(1);
         MUTEX_CONTENDER_ACQUIRED.store(1, Ordering::Release);
     }
@@ -87,7 +87,7 @@ fn stress_worker<HW: Hardware>(data: usize) {
         if STOP_WORKERS.load(Ordering::Acquire) {
             return;
         }
-        let mut shared = crate::mutex_lock!(mutex, unsafe { &mut (*context.kglobals).sched });
+        let mut shared = crate::mutex_lock!(mutex, &context.kglobals.sched);
         *shared = shared.wrapping_add(1);
         drop(shared);
 
@@ -102,12 +102,10 @@ fn return_worker(_data: usize) {}
 
 /// Run the single-CPU threading stress diagnostic.
 ///
-/// # Safety
-/// `kglobals` must point to the live kernel globals for the full duration of
-/// this call. This diagnostic can run only once per boot because the scheduler
-/// does not yet reclaim finished thread stacks.
-pub unsafe fn run<HW: Hardware>(
-    kglobals: *mut klib::KGlobals<HW>,
+/// This diagnostic can run only once per boot because the scheduler does not
+/// yet reclaim finished thread stacks.
+pub fn run<HW: Hardware>(
+    kglobals: &klib::KGlobals<HW>,
     duration_secs: u32,
 ) -> Result<(), &'static str> {
     if RUN_STARTED
@@ -116,7 +114,6 @@ pub unsafe fn run<HW: Hardware>(
     {
         return Err("thread diagnostic can only run once per boot");
     }
-    assert!(!kglobals.is_null());
     assert!(duration_secs >= 5, "diagnostic needs at least 5 seconds");
     println!(
         "> Multithreading stress test ({} workers, {}s)",
@@ -131,7 +128,7 @@ pub unsafe fn run<HW: Hardware>(
     MUTEX_CONTENDER_ACQUIRED.store(0, Ordering::Relaxed);
 
     let test_mutex = klib::tasks::mutex::Mutex::<HW, usize>::new(0);
-    let contexts: [WorkerContext<HW>; THREAD_COUNT] =
+    let contexts: [WorkerContext<'_, HW>; THREAD_COUNT] =
         core::array::from_fn(|thread_index| WorkerContext {
             kglobals,
             mutex: &test_mutex,
@@ -140,7 +137,7 @@ pub unsafe fn run<HW: Hardware>(
     let return_target = klib::tasks::thread::thread_entry_returned_count().wrapping_add(1);
     {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        let kglobals = unsafe { &mut *kglobals };
+        let mut scheduler = kglobals.sched.lock();
         for thread_index in 0..THREAD_COUNT {
             let context = core::ptr::addr_of!(contexts[thread_index]);
             let thread = klib::tasks::thread::Thread::new(
@@ -148,14 +145,14 @@ pub unsafe fn run<HW: Hardware>(
                 stress_worker::<HW>,
                 context as usize,
             );
-            kglobals.sched.queue(thread);
+            scheduler.queue(thread);
         }
         let returning_thread = klib::tasks::thread::Thread::new(
             klib::tasks::thread::THREAD_STACK_SIZE,
             return_worker,
             0,
         );
-        kglobals.sched.queue(returning_thread);
+        scheduler.queue(returning_thread);
     }
 
     let mut test_passed = true;

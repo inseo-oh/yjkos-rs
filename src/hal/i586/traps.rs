@@ -1,4 +1,4 @@
-use crate::{kglobals_mut, klib::hal::Hardware, println};
+use crate::{kglobals, klib::hal::Hardware, println};
 
 #[repr(C, align(4))]
 pub struct TrapFrame {
@@ -55,9 +55,10 @@ const PF_FLAG_U: u32 = 1 << 2; // User
 fn page_fault_handler(_trap_num: usize, trap_frame: *mut TrapFrame) {
     let frame = unsafe { trap_frame.as_mut().unwrap() };
     let fault_addr = super::read_cr2();
-    let globals = kglobals_mut();
-    globals.vmm.page_fault(
-        &mut globals.pmm,
+    let globals = kglobals();
+    let mut vmm = globals.vmm.lock();
+    vmm.page_fault(
+        |page_count| globals.pmm.lock().malloc(page_count),
         fault_addr as *mut u8,
         (frame.err_code & PF_FLAG_P) != 0,
         (frame.err_code & PF_FLAG_W) != 0,
@@ -67,17 +68,12 @@ fn page_fault_handler(_trap_num: usize, trap_frame: *mut TrapFrame) {
 }
 
 pub fn init() {
-    let globals = kglobals_mut();
+    let globals = kglobals();
+    let mut trap_manager = globals.trap_manager.lock();
     for i in 0..32 {
         match i {
-            14 => globals
-                .trap_manager
-                .register_trap(i, page_fault_handler)
-                .unwrap(),
-            _ => globals
-                .trap_manager
-                .register_trap(i, default_handler)
-                .unwrap(),
+            14 => trap_manager.register_trap(i, page_fault_handler).unwrap(),
+            _ => trap_manager.register_trap(i, default_handler).unwrap(),
         }
     }
 }

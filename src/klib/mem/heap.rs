@@ -381,19 +381,22 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
 
     pub fn expand(
         heap: &klib::irq::Mutex<HW, Self>,
-        pmm: &mut klib::mem::PhysicalMemoryManager<HW>,
-        vmm: &mut klib::mem::VirtualMemoryManager<HW>,
+        pmm: &klib::irq::Mutex<HW, klib::mem::PhysicalMemoryManager<HW>>,
+        vmm: &klib::irq::Mutex<HW, klib::mem::VirtualMemoryManager<HW>>,
     ) -> Result<(), &'static str> {
-        let heap_size = pmm.get_total_mem_size();
-        let object = klib::mem::vmm::alloc(
-            &vmm.kernel_address_space(),
-            heap_size,
-            klib::mem::vmm::MapFlags {
-                read: true,
-                write: true,
-                ..Default::default()
-            },
-        )?;
+        let heap_size = pmm.lock().get_total_mem_size();
+        let object = {
+            let mut vmm = vmm.lock();
+            klib::mem::vmm::alloc(
+                &vmm.kernel_address_space(),
+                heap_size,
+                klib::mem::vmm::MapFlags {
+                    read: true,
+                    write: true,
+                    ..Default::default()
+                },
+            )?
+        };
         let (start, size) = {
             let object = object.borrow();
             (object.start, object.size)

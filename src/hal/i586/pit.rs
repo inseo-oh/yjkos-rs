@@ -1,5 +1,5 @@
 use crate::{
-    kglobals_mut,
+    kglobals,
     klib::{self, devlib::HardwarePortIO as _},
 };
 
@@ -34,7 +34,7 @@ fn short_internal_delay() {
 
 fn irq_handler(_irq_num: u8) {
     klib::ticktime::add(1);
-    let switch = { kglobals_mut().sched.prepare_schedule() };
+    let switch = { kglobals().sched.lock().prepare_schedule() };
     if let Some(switch) = switch {
         switch.switch();
     }

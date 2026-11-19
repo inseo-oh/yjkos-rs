@@ -1,5 +1,5 @@
 use crate::{
-    kglobals_mut,
+    kglobals,
     klib::{self, hal::Hardware},
     println,
 };
@@ -134,7 +134,7 @@ fn assert_physical_addr_valid(addr: klib::PhysicalPtr, count: usize) {
     );
 }
 fn create_pd(pde: u32) -> Result<(), &'static str> {
-    let alloc = kglobals_mut().pmm.malloc(1)?;
+    let alloc = kglobals().pmm.lock().malloc(1)?;
     let addr = alloc.base.addr();
     let _size = alloc.page_count;
     write_pde(pde, addr as u32 | PDE_FLAG_P | PDE_FLAG_RW | PDE_FLAG_US);

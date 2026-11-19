@@ -1,5 +1,5 @@
 use crate::{
-    kglobals_mut,
+    kglobals,
     klib::{self, hal::Hardware},
     print, println,
 };
@@ -69,7 +69,7 @@ extern "C" fn hal_i586_init(magic: u32, multiboot_info: u32) -> ! {
         unsafe {
             super::bootinfo::process(
                 klib::PhysicalPtr::new(multiboot_info as usize),
-                &mut kglobals_mut().pmm,
+                &mut kglobals().pmm.lock(),
             );
         }
         println!(">> DONE");
@@ -78,7 +78,10 @@ extern "C" fn hal_i586_init(magic: u32, multiboot_info: u32) -> ! {
     //       as new PMM allocations can overwrite them (unless we copied them of course).
 
     print!("> Initialize PIC..........................................................");
-    super::pic::init(&mut kglobals_mut().trap_manager);
+    {
+        let mut trap_manager = kglobals().trap_manager.lock();
+        super::pic::init(&mut trap_manager);
+    }
     println!("[DONE]");
 
     print!("> Initialize PIT..........................................................");
@@ -96,7 +99,7 @@ extern "C" fn hal_i586_init(magic: u32, multiboot_info: u32) -> ! {
     println!("================================================================================");
     println!("");
 
-    klib::kmain(kglobals_mut());
+    klib::kmain(kglobals());
 }
 
 global_asm!(

@@ -7,11 +7,9 @@ mod hal;
 mod klib;
 mod panic;
 
-use core::ptr::addr_of_mut;
-
-static mut KGLOBALS: klib::KGlobals<hal::Hardware> = klib::KGlobals::new();
-fn kglobals_mut() -> &'static mut klib::KGlobals<hal::Hardware> {
-    unsafe { &mut *addr_of_mut!(KGLOBALS) }
+static KGLOBALS: klib::KGlobals<hal::Hardware> = klib::KGlobals::new();
+fn kglobals() -> &'static klib::KGlobals<hal::Hardware> {
+    &KGLOBALS
 }
 
 #[unsafe(no_mangle)]
@@ -19,5 +17,12 @@ extern "C" fn trap_manager_trap(
     trap_num: usize,
     trap_frame: *mut <hal::Hardware as klib::hal::Hardware>::TrapFrame,
 ) {
-    kglobals_mut().trap_manager.trap(trap_num, trap_frame);
+    let trap_manager = &kglobals().trap_manager;
+    let handler_count = { trap_manager.lock().handler_count(trap_num) };
+    for index in 0..handler_count {
+        let callback = { trap_manager.lock().handler_at(trap_num, index) };
+        if let Some(callback) = callback {
+            callback(trap_num, trap_frame);
+        }
+    }
 }

@@ -2,9 +2,18 @@ use crate::klib;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-#[derive(Clone, Copy)]
+pub type TrapCallback<HW> =
+    fn(trap_num: usize, trap_frame: *mut <HW as klib::hal::Hardware>::TrapFrame);
+
 pub struct TrapHandler<HW: klib::hal::Hardware> {
-    callback: fn(trap_num: usize, trap_frame: *mut HW::TrapFrame),
+    callback: TrapCallback<HW>,
+}
+
+impl<HW: klib::hal::Hardware> Copy for TrapHandler<HW> {}
+impl<HW: klib::hal::Hardware> Clone for TrapHandler<HW> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 pub const TRAP_COUNT: usize = 256;
@@ -25,23 +34,33 @@ impl<HW: klib::hal::Hardware> TrapManager<HW> {
     pub fn register_trap(
         &mut self,
         trap_num: usize,
-        callback: fn(trap_num: usize, trap_frame: *mut HW::TrapFrame),
+        callback: TrapCallback<HW>,
     ) -> Result<(), &'static str> {
         if trap_num >= TRAP_COUNT {
             return Err("invalid trap number");
         }
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        let handlers = &mut self.traps[trap_num];
-        handlers.push(TrapHandler { callback });
+        self.traps[trap_num].push(TrapHandler { callback });
         Ok(())
+    }
+    pub fn handler_count(&self, trap_num: usize) -> usize {
+        assert!(!HW::irq_enabled());
+        self.traps.get(trap_num).map_or(0, Vec::len)
+    }
+    pub fn handler_at(&self, trap_num: usize, index: usize) -> Option<TrapCallback<HW>> {
+        assert!(!HW::irq_enabled());
+        self.traps
+            .get(trap_num)
+            .and_then(|handlers| handlers.get(index))
+            .map(|handler| handler.callback)
     }
     pub fn trap(&self, trap_num: usize, trapframe: *mut HW::TrapFrame) {
         assert!(!HW::irq_enabled());
-        if trap_num >= TRAP_COUNT {
-            return;
-        }
-        for trap in &self.traps[trap_num] {
-            (trap.callback)(trap_num, trapframe)
+        let handler_count = self.handler_count(trap_num);
+        for index in 0..handler_count {
+            if let Some(callback) = self.handler_at(trap_num, index) {
+                callback(trap_num, trapframe);
+            }
         }
     }
 }

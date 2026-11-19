@@ -35,7 +35,7 @@ impl<HW: klib::hal::Hardware> RawMutex<HW> {
     }
     pub fn __lock_begin(
         self: &RawMutexHandle<HW>,
-        sched: &mut klib::tasks::sched::Scheduler<HW>,
+        sched: &klib::irq::Mutex<HW, klib::tasks::sched::Scheduler<HW>>,
         loc: klib::diag::SourceLocation,
     ) -> Result<(), klib::tasks::sched::SwitchRequest<HW>> {
         let irq_disable = klib::irq::DisableGuard::<HW>::lock();
@@ -43,7 +43,11 @@ impl<HW: klib::hal::Hardware> RawMutex<HW> {
             drop(irq_disable);
             Ok(())
         } else {
-            Err(sched.wait_mutex(self.clone(), loc, irq_disable))
+            let switch = {
+                let mut sched = sched.lock();
+                sched.wait_mutex(self.clone(), loc, irq_disable)
+            };
+            Err(switch)
         }
     }
     pub fn unlock(&self) {
@@ -72,7 +76,7 @@ impl<HW: klib::hal::Hardware, T> Mutex<HW, T> {
     }
     pub fn __lock_begin(
         &self,
-        sched: &mut klib::tasks::sched::Scheduler<HW>,
+        sched: &klib::irq::Mutex<HW, klib::tasks::sched::Scheduler<HW>>,
         loc: klib::diag::SourceLocation,
     ) -> Result<(), klib::tasks::sched::SwitchRequest<HW>> {
         self.raw_mutex_h.__lock_begin(sched, loc)
@@ -195,9 +199,10 @@ mod tests {
     #[test]
     fn blocking_mutex_lock_macro_records_its_call_site_and_unlocks_on_drop() {
         let mutex = Mutex::<klib::hal::TestHW, _>::new(1);
-        let mut scheduler = klib::tasks::sched::Scheduler::<klib::hal::TestHW>::new();
+        let scheduler =
+            klib::irq::Mutex::new(klib::tasks::sched::Scheduler::<klib::hal::TestHW>::new());
         let expected_line = line!() + 1;
-        let guard = crate::mutex_lock!(mutex, &mut scheduler);
+        let guard = crate::mutex_lock!(mutex, &scheduler);
 
         assert_eq!(*guard, 1);
         let lock_source = mutex.raw_mutex_h.lock_source.get();

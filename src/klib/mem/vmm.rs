@@ -61,7 +61,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
     }
     pub fn page_fault(
         &mut self,
-        pmm: &mut klib::mem::pmm::PhysicalMemoryManager<HW>,
+        mut alloc_page: impl FnMut(usize) -> Result<klib::mem::pmm::AllocatedPageInfo, &'static str>,
         ptr: *mut u8,
         was_present: bool,
         was_write: bool,
@@ -136,9 +136,8 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
                 .expect("physical address overflow")
         } else {
             // TODO: Run the OOM killer
-            let alloc = pmm
-                .malloc(page_count)
-                .expect("ran out of memory while trying to commit the page");
+            let alloc =
+                alloc_page(page_count).expect("ran out of memory while trying to commit the page");
             alloc.base
         };
         HW::mmu_map(
@@ -1237,7 +1236,14 @@ mod tests {
         };
         let mut pmm = klib::mem::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
-        manager.page_fault(&mut pmm, virt_base, false, true, false, &());
+        manager.page_fault(
+            |count| pmm.malloc(count),
+            virt_base,
+            false,
+            true,
+            false,
+            &(),
+        );
 
         assert!(address_space.borrow().uncommitted_objects.is_empty());
         assert!(
@@ -1338,7 +1344,14 @@ mod tests {
         };
         let mut pmm = klib::mem::pmm::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
-        manager.page_fault(&mut pmm, virt_base, false, false, false, &());
+        manager.page_fault(
+            |count| pmm.malloc(count),
+            virt_base,
+            false,
+            false,
+            false,
+            &(),
+        );
     }
 
     #[test]
@@ -1359,8 +1372,22 @@ mod tests {
         };
         let mut pmm = klib::mem::pmm::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
-        manager.page_fault(&mut pmm, virt_base, false, false, false, &());
-        manager.page_fault(&mut pmm, virt_base, false, false, false, &());
+        manager.page_fault(
+            |count| pmm.malloc(count),
+            virt_base,
+            false,
+            false,
+            false,
+            &(),
+        );
+        manager.page_fault(
+            |count| pmm.malloc(count),
+            virt_base,
+            false,
+            false,
+            false,
+            &(),
+        );
     }
 
     #[test]
@@ -1373,7 +1400,14 @@ mod tests {
         };
         let mut pmm = klib::mem::pmm::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
-        manager.page_fault(&mut pmm, virt_base, true, false, false, &());
+        manager.page_fault(
+            |count| pmm.malloc(count),
+            virt_base,
+            true,
+            false,
+            false,
+            &(),
+        );
     }
 
     #[test]
@@ -1384,7 +1418,14 @@ mod tests {
         };
         let mut pmm = klib::mem::pmm::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
-        manager.page_fault(&mut pmm, core::ptr::null_mut(), false, false, false, &());
+        manager.page_fault(
+            |count| pmm.malloc(count),
+            core::ptr::null_mut(),
+            false,
+            false,
+            false,
+            &(),
+        );
     }
 
     #[test]
@@ -1397,6 +1438,13 @@ mod tests {
         };
         let mut pmm = klib::mem::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
-        manager.page_fault(&mut pmm, virt_base, false, false, false, &());
+        manager.page_fault(
+            |count| pmm.malloc(count),
+            virt_base,
+            false,
+            false,
+            false,
+            &(),
+        );
     }
 }

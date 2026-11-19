@@ -27,7 +27,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for PrintCommand {
         }
     }
 
-    fn execute(&self, _arguments: &[String], _kglobals: *mut klib::KGlobals<HW>) {
+    fn execute(&self, _arguments: &[String], _kglobals: &klib::KGlobals<HW>) {
         println!("hello, world!");
     }
 }
@@ -54,12 +54,11 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
         }
     }
 
-    fn execute(&self, arguments: &[String], kglobals: *mut klib::KGlobals<HW>) {
+    fn execute(&self, arguments: &[String], kglobals: &klib::KGlobals<HW>) {
         if arguments.first().is_some_and(|arg| arg == "thread") {
-            // SAFETY: Shell retains this pointer to the live kernel globals.
-            if let Err(error) = unsafe {
+            if let Err(error) =
                 klib::diag::thread::run(kglobals, klib::diag::thread::DEFAULT_DURATION_SECS)
-            } {
+            {
                 println!("[FAIL] {}", error);
             }
         } else {
@@ -119,7 +118,7 @@ trait Command<HW: klib::hal::Hardware> {
         arguments: &[String],
         argument_index: usize,
     ) -> Option<Box<dyn Completable>>;
-    fn execute(&self, arguments: &[String], kglobals: *mut klib::KGlobals<HW>);
+    fn execute(&self, arguments: &[String], kglobals: &klib::KGlobals<HW>);
 }
 
 struct CommandNameCompletion<'a, HW: klib::hal::Hardware>(&'a [Box<dyn Command<HW>>]);
@@ -161,18 +160,18 @@ trait Completable {
     }
 }
 
-pub struct Shell<HW: klib::hal::Hardware> {
+pub struct Shell<'a, HW: klib::hal::Hardware> {
     command_buf: String,
     commands: Vec<Box<dyn Command<HW>>>,
-    kglobals: *mut klib::KGlobals<HW>,
+    kglobals: &'a klib::KGlobals<HW>,
 }
 
-impl<HW: klib::hal::Hardware> Shell<HW> {
-    pub fn new() -> Self {
+impl<'a, HW: klib::hal::Hardware> Shell<'a, HW> {
+    pub fn new(kglobals: &'a klib::KGlobals<HW>) -> Self {
         Self {
             command_buf: String::new(),
             commands: commands(),
-            kglobals: core::ptr::null_mut(),
+            kglobals,
         }
     }
     fn command_components(&self) -> Vec<&str> {
@@ -314,20 +313,9 @@ impl<HW: klib::hal::Hardware> Shell<HW> {
             }
         }
     }
-    /// # Safety
-    /// `kglobals` must point to the live kernel globals for the shell's lifetime.
-    /// Contextual commands may retain and access it across thread switches.
-    pub unsafe fn run(&mut self, kglobals: *mut klib::KGlobals<HW>) -> ! {
-        assert!(!kglobals.is_null());
-        self.kglobals = kglobals;
+    pub fn run(&mut self) -> ! {
         loop {
             self.prompt()
         }
-    }
-}
-
-impl<HW: klib::hal::Hardware> Default for Shell<HW> {
-    fn default() -> Self {
-        Self::new()
     }
 }
