@@ -21,3 +21,7 @@ With QEMU installed:
 ```
 
 Set `YJK_NO_KVM=1` to run QEMU without KVM acceleration.
+
+## AI disclaimer
+
+Majority of code is my own code(except test code), but I do get some help from AI chatbots, and they also write most of test code.
