@@ -70,8 +70,8 @@ impl<HW: klib::hal::Hardware, T> Mutex<HW, T> {
         self.raw_mutex_h.__try_lock(loc)?;
         Ok(MutexGuard(self))
     }
-    pub fn __lock_begin<'a>(
-        &'a self,
+    pub fn __lock_begin(
+        &self,
         sched: &mut klib::tasks::sched::Scheduler<HW>,
         loc: klib::diag::SourceLocation,
     ) -> Result<(), klib::tasks::sched::SwitchRequest<HW>> {
