@@ -5,10 +5,10 @@ pub struct AllocatedPageInfo {
     pub base: klib::PhysicalPtr,
     pub page_count: usize,
 }
-pub(crate) struct PagePool<HW> {
+pub(in crate::klib) struct PagePool<HW> {
     bitmap: Vec<klib::bitmap::Word>,
-    pub(crate) base_addr: klib::PhysicalPtr,
-    pub(crate) page_count: usize,
+    pub(in crate::klib) base_addr: klib::PhysicalPtr,
+    pub(in crate::klib) page_count: usize,
     _hw: PhantomData<HW>,
 }
 impl<HW: klib::hal::Hardware> PagePool<HW> {
@@ -219,7 +219,7 @@ const fn bit_index_for_page_pool_block(level: usize, block: usize) -> usize {
 //    the corresponding block as available.
 // 3. Repeat 2 until neighbor is not marked as available, or there is no neighbor(i.e. The first level).
 pub struct PhysicalMemoryManager<HW: klib::hal::Hardware> {
-    pub(crate) pools: Vec<PagePool<HW>>,
+    pub(in crate::klib) pools: Vec<PagePool<HW>>,
 }
 impl<HW: klib::hal::Hardware> PhysicalMemoryManager<HW> {
     pub const fn new() -> Self {

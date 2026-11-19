@@ -8,7 +8,7 @@ pub const THREAD_STACK_SIZE: usize = 1024 * 16;
 // This is only for testing, for now.
 static RETURNED_ENTRY_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-pub(crate) fn thread_entry_returned_count() -> usize {
+pub(in crate::klib) fn thread_entry_returned_count() -> usize {
     RETURNED_ENTRY_COUNT.load(Ordering::Relaxed)
 }
 
@@ -55,7 +55,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
     /// until this call returns. The architecture contexts must not be accessed
     /// concurrently; later sequential switches may access them while this call
     /// is suspended.
-    pub(crate) unsafe fn switch(from: &ThreadHandle<HW>, to: &ThreadHandle<HW>) {
+    pub(super) unsafe fn switch(from: &ThreadHandle<HW>, to: &ThreadHandle<HW>) {
         assert!(!Rc::ptr_eq(from, to), "cannot switch a thread to itself");
 
         let from_cell = unsafe { &*Rc::as_ptr(from) };

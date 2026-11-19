@@ -3,7 +3,7 @@ use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, ptr::null_mut};
 
 pub struct VirtualMemoryManager<HW> {
-    pub(crate) kernel_address_space: Option<AddressSpaceHandle<HW>>,
+    pub(in crate::klib) kernel_address_space: Option<AddressSpaceHandle<HW>>,
 }
 
 impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
@@ -396,11 +396,11 @@ pub fn map_unaligned_at<HW: klib::hal::Hardware>(
 
 #[repr(C)]
 pub struct AddressSpace<HW> {
-    pub(crate) object_list: Vec<ObjectHandle<HW>>,
-    pub(crate) uncommitted_objects: Vec<UncommittedObjectHandle<HW>>,
+    pub(in crate::klib) object_list: Vec<ObjectHandle<HW>>,
+    pub(in crate::klib) uncommitted_objects: Vec<UncommittedObjectHandle<HW>>,
     is_user: bool,
 }
-type AddressSpaceHandle<HW> = Rc<RefCell<AddressSpace<HW>>>;
+pub(in crate::klib) type AddressSpaceHandle<HW> = Rc<RefCell<AddressSpace<HW>>>;
 
 impl<HW: klib::hal::Hardware> AddressSpace<HW> {
     pub fn new(start: *mut u8, size: usize, is_user: bool) -> AddressSpaceHandle<HW> {
@@ -571,13 +571,13 @@ fn create_object<HW>(
 }
 
 #[repr(C)]
-pub(crate) struct UncommittedObject<HW> {
-    pub(crate) object: ObjectHandle<HW>,
+pub(in crate::klib) struct UncommittedObject<HW> {
+    pub(in crate::klib) object: ObjectHandle<HW>,
     bitmap: Vec<klib::bitmap::Word>,
 }
-pub(crate) type UncommittedObjectHandle<HW> = Rc<RefCell<UncommittedObject<HW>>>;
+pub(in crate::klib) type UncommittedObjectHandle<HW> = Rc<RefCell<UncommittedObject<HW>>>;
 impl<HW: klib::hal::Hardware> UncommittedObject<HW> {
-    pub(crate) fn uncommited_count(&mut self) -> usize {
+    pub(in crate::klib) fn uncommited_count(&mut self) -> usize {
         let page_count = self.object.borrow().size / HW::PAGE_SIZE;
         (0..page_count)
             .filter(|&page_index| self.is_page_uncommitted(page_index))

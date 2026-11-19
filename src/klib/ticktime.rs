@@ -5,7 +5,7 @@ pub type TickTime = AtomicU32;
 static TICKTIME: TickTime = AtomicU32::new(0);
 
 #[cfg(test)]
-pub(crate) static TEST_TICKTIME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static TEST_TICKTIME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn load() -> u32 {
     TICKTIME.load(Ordering::Relaxed)
