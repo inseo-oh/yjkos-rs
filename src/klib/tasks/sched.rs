@@ -3,13 +3,27 @@ use core::cell::RefCell;
 use crate::klib;
 use alloc::{rc::Rc, vec::Vec};
 
-pub struct Queue<HW: klib::hal::Hardware> {
+struct Queue<HW: klib::hal::Hardware> {
     // Lower value -> Higher priority (similar to UNIX niceness).
-    pub(in crate::klib) priority: i8,
-    pub(in crate::klib) opportunities: usize,
-    pub(in crate::klib) threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    priority: i8,
+    opportunities: usize,
+    threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
 }
-pub type QueueHandle<HW> = Rc<RefCell<Queue<HW>>>;
+type QueueHandle<HW> = Rc<RefCell<Queue<HW>>>;
+
+impl<HW: klib::hal::Hardware> Queue<HW> {
+    pub(in crate::klib) fn priority(&self) -> i8 {
+        self.priority
+    }
+
+    pub(in crate::klib) fn opportunities(&self) -> usize {
+        self.opportunities
+    }
+
+    pub(in crate::klib) fn runnable_thread_count(&self) -> usize {
+        self.threads.len()
+    }
+}
 
 /// An owned thread switch prepared by the scheduler.
 ///
@@ -49,10 +63,10 @@ pub struct Scheduler<HW: klib::hal::Hardware> {
     //
     // When opportunities become zero, that queue is no longer selected, thus lower
     // priority queues are selected less than higher priority ones.
-    pub(in crate::klib) queues: Vec<QueueHandle<HW>>,
+    queues: Vec<QueueHandle<HW>>,
     current_queue: Option<QueueHandle<HW>>,
     running_thread: Option<klib::tasks::thread::ThreadHandle<HW>>,
-    pub(in crate::klib) mutex_wait_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    mutex_wait_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
     kernel_process: Option<klib::tasks::process::ProcessHandle<HW>>,
 }
 
@@ -71,6 +85,20 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             .as_ref()
             .expect("kernel process not initialized yet")
             .clone()
+    }
+    pub(in crate::klib) fn queue_stats(&self) -> impl Iterator<Item = (i8, usize, usize)> + '_ {
+        self.queues.iter().map(|queue_h| {
+            let queue = queue_h.borrow();
+            (
+                queue.priority(),
+                queue.opportunities(),
+                queue.runnable_thread_count(),
+            )
+        })
+    }
+
+    pub(in crate::klib) fn mutex_waiting_thread_count(&self) -> usize {
+        self.mutex_wait_threads.len()
     }
     fn alloc_queue(
         &mut self,

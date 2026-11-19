@@ -11,20 +11,33 @@ use core::{
 #[repr(C, align(16))]
 struct HeapAlignment([u8; 0]);
 #[repr(align(16))]
-pub(in crate::klib) struct InitialHeapMemory([u8; 1024 * 1024 * 2]);
+struct InitialHeapMemory([u8; 1024 * 1024 * 2]);
 
 #[repr(C)]
 pub(in crate::klib) struct Pool {
     block_pool_p: *mut u8,
     block_bitmap: klib::Bitmap<'static>,
-    pub(in crate::klib) block_count: usize,
-    pub(in crate::klib) used_block_count: usize,
-    pub(in crate::klib) page_count: usize,
+    block_count: usize,
+    used_block_count: usize,
+    page_count: usize,
     heap_data: HeapAlignment,
+}
+impl Pool {
+    pub(in crate::klib) fn block_count(&self) -> usize {
+        self.block_count
+    }
+
+    pub(in crate::klib) fn used_block_count(&self) -> usize {
+        self.used_block_count
+    }
+
+    pub(in crate::klib) fn page_count(&self) -> usize {
+        self.page_count
+    }
 }
 type PoolHeader = klib::list::Node<Pool>;
 #[repr(C)]
-pub(in crate::klib) struct AllocHeaderData {
+struct AllocHeaderData {
     block_count: usize,
     pool_p: *mut PoolHeader,
     size: usize,
@@ -84,8 +97,8 @@ unsafe fn alloc_header_of(ptr: *mut u8) -> Option<NonNull<AllocHeader>> {
 }
 
 pub struct Heap<HW> {
-    pub(in crate::klib) free_block_count: usize,
-    pub(in crate::klib) heap_pool_list: klib::UnsafeList<Pool>,
+    free_block_count: usize,
+    heap_pool_list: klib::UnsafeList<Pool>,
     alloc_list: klib::UnsafeList<AllocHeaderData>,
     initial_heap_memory: InitialHeapMemory,
     initial_heap_initialized: bool,
@@ -103,6 +116,14 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
             _hw: PhantomData,
             _pin: PhantomPinned,
         }
+    }
+
+    pub(in crate::klib) fn free_block_count(&self) -> usize {
+        self.free_block_count
+    }
+
+    pub(in crate::klib) fn pools(&self) -> impl Iterator<Item = &Pool> {
+        self.heap_pool_list.iter()
     }
 
     /// # Safety

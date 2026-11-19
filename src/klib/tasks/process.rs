@@ -22,8 +22,8 @@ pub(crate) fn process_entry_returned() -> ! {
 
 pub struct Process<HW: klib::hal::Hardware> {
     pub(super) priority: i8,
-    pub(in crate::klib) queued_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
-    pub(in crate::klib) ran_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    queued_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    ran_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
 }
 
 pub type ProcessHandle<HW> = Rc<RefCell<Process<HW>>>;

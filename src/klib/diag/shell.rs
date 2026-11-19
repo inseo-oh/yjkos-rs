@@ -63,30 +63,32 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             println!();
             println!("| BASE       | SIZE       | PAGES   |");
             println!("+------------+------------+---------+");
-            for pool in &kglobals.pmm.lock().pools {
-                let base = pool.base_addr.addr();
+            let pmm = kglobals.pmm.lock();
+            for pool in pmm.pools() {
+                let base = pool.base_addr().addr();
                 println!(
                     "| {:#10x} | {:7}KiB | {:7} |",
                     base,
-                    (pool.page_count * HW::PAGE_SIZE) / 1024,
-                    pool.page_count
+                    (pool.page_count() * HW::PAGE_SIZE) / 1024,
+                    pool.page_count()
                 );
             }
             println!();
             println!(
                 "Total memory is around {}MiB",
-                kglobals.pmm.lock().get_total_mem_size() / (1024 * 1024)
+                pmm.get_total_mem_size() / (1024 * 1024)
             );
             println!("(Not including memory used for kernel image or computer itself)");
         } else if typ == "vmemory" {
             let vmm = kglobals.vmm.lock();
-            let kas_h = vmm.kernel_address_space.as_ref().unwrap();
+            let kas_h = vmm.existing_kernel_address_space().unwrap();
+            let kas = kas_h.borrow();
             println!("# Virtual memory information (Kernel address space)");
             println!();
             println!("1. Unallocated virtual memory regions");
             println!("| BASE       | SIZE       | PAGES   |");
             println!("+------------+------------+---------+");
-            for obj_h in &kas_h.borrow().object_list {
+            for obj_h in kas.objects() {
                 let obj = obj_h.borrow();
                 let base = obj.start.addr();
                 println!(
@@ -104,10 +106,10 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             println!(
                 "+------------+------------+------------+---------+---------------------+-------+"
             );
-            for uobj_h in &kas_h.borrow().uncommitted_objects {
-                let uncommited_count = uobj_h.borrow_mut().uncommited_count();
+            for uobj_h in kas.uncommitted_objects() {
                 let uobj = uobj_h.borrow();
-                let obj = uobj.object.borrow();
+                let uncommited_count = uobj.uncommited_count();
+                let obj = uobj.object().borrow();
                 let vbase = obj.start.addr();
                 if let Some(pbase) = obj.phys_base.map(klib::PhysicalPtr::addr) {
                     print!("| {:#10x} ", pbase,);
@@ -139,24 +141,24 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             println!(
                 "+-----+---------------------+---------------------------+----------------------+"
             );
-            for (n, pool) in heap.heap_pool_list.iter().enumerate() {
+            for (n, pool) in heap.pools().enumerate() {
                 println!(
                     "| {:3} | {:7} ({:6}KiB) | {:7} ({:6}KiB, {:3}%) | {:7} ({:7}KiB) |",
                     n,
-                    pool.block_count,
-                    (pool.block_count * klib::mem::heap::BLOCK_SIZE) / 1024,
-                    pool.used_block_count,
-                    (pool.used_block_count * klib::mem::heap::BLOCK_SIZE) / 1024,
-                    (pool.used_block_count * 100) / pool.block_count,
-                    pool.page_count,
-                    (pool.page_count * HW::PAGE_SIZE) / 1024,
+                    pool.block_count(),
+                    (pool.block_count() * klib::mem::heap::BLOCK_SIZE) / 1024,
+                    pool.used_block_count(),
+                    (pool.used_block_count() * klib::mem::heap::BLOCK_SIZE) / 1024,
+                    (pool.used_block_count() * 100) / pool.block_count(),
+                    pool.page_count(),
+                    (pool.page_count() * HW::PAGE_SIZE) / 1024,
                 );
             }
             println!();
             println!(
                 "Total free memory is {} blocks ({}KiB)",
-                heap.free_block_count,
-                (heap.free_block_count * klib::mem::heap::BLOCK_SIZE) / 1024
+                heap.free_block_count(),
+                (heap.free_block_count() * klib::mem::heap::BLOCK_SIZE) / 1024
             );
         } else if typ == "scheduler" {
             println!("# Scheduler queue information");
@@ -164,18 +166,17 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             println!();
             println!("| NO. | PRIORITY | OPPORTUNITIES | THREADS |");
             println!("+-----+----------+---------------+---------+");
-            for (n, queue_h) in sched.queues.iter().enumerate() {
-                let queue = queue_h.borrow();
+            for (n, (priority, opportunities, thread_count)) in sched.queue_stats().enumerate() {
                 println!(
                     "| {:3} | {:3} | {:3} | {:10} |",
-                    n,
-                    queue.priority,
-                    queue.opportunities,
-                    queue.threads.len(),
+                    n, priority, opportunities, thread_count,
                 );
             }
             println!();
-            println!("Mutex waiting threads: {}", sched.mutex_wait_threads.len());
+            println!(
+                "Mutex waiting threads: {}",
+                sched.mutex_waiting_thread_count()
+            );
         } else if typ == "ticktime" {
             println!("Current ticktime: {}", klib::ticktime::load());
         } else {
