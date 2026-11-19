@@ -184,7 +184,7 @@ pub unsafe fn run<HW: Hardware>(kglobals: *mut klib::KGlobals<HW>, duration_secs
             }
             println!("[ OK ] Mutex contention and thread return path");
         }
-        if second == 1 || second % 60 == 0 {
+        if second == 1 || second % 10 == 0 {
             println!("  workers made progress ({}/{}s)", second, duration_secs);
         }
     }
