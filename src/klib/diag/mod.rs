@@ -1,4 +1,7 @@
+pub mod shell;
 pub mod thread;
+
+pub use shell::Shell;
 
 #[derive(Clone, Copy)]
 pub struct SourceLocation {

@@ -24,8 +24,13 @@ fn write_serial(args: core::fmt::Arguments<'_>) -> core::fmt::Result {
     let mut serial = SERIAL.lock();
     core::fmt::Write::write_fmt(&mut *serial, args)
 }
+fn read_serial() -> char {
+    let serial = SERIAL.lock();
+    serial.read_byte() as char
+}
 
 static SERIAL_WRITER: klib::console::ConsoleWriter = write_serial;
+static SERIAL_READER: klib::console::ConsoleReader = read_serial;
 
 pub struct HardwarePortIO;
 impl klib::devlib::HardwarePortIO for HardwarePortIO {

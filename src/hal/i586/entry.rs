@@ -12,6 +12,7 @@ extern "C" fn hal_i586_init(magic: u32, multiboot_info: u32) -> ! {
         _ = serial.init(115200);
     }
     klib::console::set_writer(&super::SERIAL_WRITER);
+    klib::console::set_reader(&super::SERIAL_READER);
     println!();
     println!("Initializing YJKernel i586 HAL. Please wait...");
 

@@ -84,6 +84,12 @@ fn initialize<HW: hal::Hardware>(kglobals: &mut KGlobals<HW>) -> *mut KGlobals<H
     }
     println!("> Initialize boot thread (ignore the 0k stack it says)");
     kglobals.sched.init_boot_thread();
+
     println!(">> DONE");
+
+    println!();
+    let mut diag = diag::Shell::new();
+    diag.run();
+
     kglobals
 }
