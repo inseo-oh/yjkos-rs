@@ -57,7 +57,11 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
     fn execute(&self, arguments: &[String], kglobals: *mut klib::KGlobals<HW>) {
         if arguments.first().is_some_and(|arg| arg == "thread") {
             // SAFETY: Shell retains this pointer to the live kernel globals.
-            unsafe { klib::diag::thread::run(kglobals, klib::diag::thread::DEFAULT_DURATION_SECS) }
+            if let Err(error) = unsafe {
+                klib::diag::thread::run(kglobals, klib::diag::thread::DEFAULT_DURATION_SECS)
+            } {
+                println!("[FAIL] {}", error);
+            }
         } else {
             println!("usage: test thread");
         }

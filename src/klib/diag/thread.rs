@@ -2,13 +2,15 @@ use crate::{
     klib::{self, hal::Hardware},
     println,
 };
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const THREAD_COUNT: usize = 10;
 pub const DEFAULT_DURATION_SECS: u32 = 60;
 const TICKS_PER_SEC: u32 = 1000;
 const STALL_TIMEOUT_SECS: u8 = 10;
 
+static RUN_STARTED: AtomicBool = AtomicBool::new(false);
+static STOP_WORKERS: AtomicBool = AtomicBool::new(false);
 static PROGRESS_0: AtomicUsize = AtomicUsize::new(0);
 static PROGRESS_1: AtomicUsize = AtomicUsize::new(0);
 static PROGRESS_2: AtomicUsize = AtomicUsize::new(0);
@@ -82,6 +84,9 @@ fn stress_worker<HW: Hardware>(data: usize) {
     }
 
     loop {
+        if STOP_WORKERS.load(Ordering::Acquire) {
+            return;
+        }
         let mut shared = crate::mutex_lock!(mutex, unsafe { &mut (*context.kglobals).sched });
         *shared = shared.wrapping_add(1);
         drop(shared);
@@ -95,12 +100,22 @@ fn stress_worker<HW: Hardware>(data: usize) {
 
 fn return_worker(_data: usize) {}
 
-/// Run the long-running single-CPU threading stress diagnostic.
+/// Run the single-CPU threading stress diagnostic.
 ///
 /// # Safety
 /// `kglobals` must point to the live kernel globals for the full duration of
-/// this call. The diagnostic keeps running after its checks finish.
-pub unsafe fn run<HW: Hardware>(kglobals: *mut klib::KGlobals<HW>, duration_secs: u32) -> ! {
+/// this call. This diagnostic can run only once per boot because the scheduler
+/// does not yet reclaim finished thread stacks.
+pub unsafe fn run<HW: Hardware>(
+    kglobals: *mut klib::KGlobals<HW>,
+    duration_secs: u32,
+) -> Result<(), &'static str> {
+    if RUN_STARTED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err("thread diagnostic can only run once per boot");
+    }
     assert!(!kglobals.is_null());
     assert!(duration_secs >= 5, "diagnostic needs at least 5 seconds");
     println!(
@@ -110,6 +125,7 @@ pub unsafe fn run<HW: Hardware>(kglobals: *mut klib::KGlobals<HW>, duration_secs
     for thread_index in 0..THREAD_COUNT {
         progress(thread_index).store(0, Ordering::Relaxed);
     }
+    STOP_WORKERS.store(false, Ordering::Relaxed);
     MUTEX_OWNER_READY.store(0, Ordering::Relaxed);
     MUTEX_CONTENDER_WAITING.store(0, Ordering::Relaxed);
     MUTEX_CONTENDER_ACQUIRED.store(0, Ordering::Relaxed);
@@ -195,7 +211,16 @@ pub unsafe fn run<HW: Hardware>(kglobals: *mut klib::KGlobals<HW>, duration_secs
         );
     }
 
-    loop {
+    STOP_WORKERS.store(true, Ordering::Release);
+    let expected_returned_count = return_target.wrapping_add(THREAD_COUNT);
+    while klib::tasks::thread::thread_entry_returned_count() < expected_returned_count {
         core::hint::spin_loop();
+    }
+    println!("[ OK ] Stress workers stopped");
+
+    if test_passed {
+        Ok(())
+    } else {
+        Err("thread stress test failed")
     }
 }
