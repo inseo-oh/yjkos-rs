@@ -160,6 +160,7 @@ trait Completable {
 pub struct Shell<HW: klib::hal::Hardware> {
     command_buf: String,
     commands: Vec<Box<dyn Command<HW>>>,
+    kglobals: *mut klib::KGlobals<HW>,
 }
 
 impl<HW: klib::hal::Hardware> Shell<HW> {
@@ -167,6 +168,7 @@ impl<HW: klib::hal::Hardware> Shell<HW> {
         Self {
             command_buf: String::new(),
             commands: commands(),
+            kglobals: core::ptr::null_mut(),
         }
     }
     fn command_components(&self) -> Vec<&str> {
@@ -239,7 +241,7 @@ impl<HW: klib::hal::Hardware> Shell<HW> {
         }
         Ok(new_comps.join(" "))
     }
-    fn execute(&self, kglobals: *mut klib::KGlobals<HW>) -> Result<(), &'static str> {
+    fn execute(&self) -> Result<(), &'static str> {
         let components = self.command_components();
         let cmd_sugg = CommandNameCompletion(&self.commands).try_autocomplete(components[0])?;
         let cmd = self
@@ -252,11 +254,11 @@ impl<HW: klib::hal::Hardware> Shell<HW> {
                 .iter()
                 .map(|s| s.to_string())
                 .collect::<Vec<String>>(),
-            kglobals,
+            self.kglobals,
         );
         Ok(())
     }
-    fn prompt(&mut self, kglobals: *mut klib::KGlobals<HW>) {
+    fn prompt(&mut self) {
         print!("diag> {}", self.command_buf);
         'input: loop {
             let c = klib::console::read().unwrap();
@@ -267,7 +269,7 @@ impl<HW: klib::hal::Hardware> Shell<HW> {
                         match self.try_autocomplete() {
                             Ok(v) => {
                                 self.command_buf = v;
-                                if let Err(e) = self.execute(kglobals) {
+                                if let Err(e) = self.execute() {
                                     println!("bad command: {}: {}", &self.command_buf, e)
                                 }
                             }
@@ -312,8 +314,10 @@ impl<HW: klib::hal::Hardware> Shell<HW> {
     /// `kglobals` must point to the live kernel globals for the shell's lifetime.
     /// Contextual commands may retain and access it across thread switches.
     pub unsafe fn run(&mut self, kglobals: *mut klib::KGlobals<HW>) -> ! {
+        assert!(!kglobals.is_null());
+        self.kglobals = kglobals;
         loop {
-            self.prompt(kglobals)
+            self.prompt()
         }
     }
 }
