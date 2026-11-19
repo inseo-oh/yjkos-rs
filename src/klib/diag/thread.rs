@@ -141,6 +141,7 @@ pub fn run<HW: Hardware>(
         for thread_index in 0..THREAD_COUNT {
             let context = core::ptr::addr_of!(contexts[thread_index]);
             let thread = klib::tasks::thread::Thread::new(
+                &scheduler.kernel_process(),
                 klib::tasks::thread::THREAD_STACK_SIZE,
                 stress_worker::<HW>,
                 context as usize,
@@ -148,6 +149,7 @@ pub fn run<HW: Hardware>(
             scheduler.queue(thread);
         }
         let returning_thread = klib::tasks::thread::Thread::new(
+            &scheduler.kernel_process(),
             klib::tasks::thread::THREAD_STACK_SIZE,
             return_worker,
             0,

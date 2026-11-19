@@ -86,8 +86,8 @@ fn initialize<HW: hal::Hardware>(kglobals: &KGlobals<HW>) {
     } else {
         println!("[ OK ]");
     }
-    println!("> Initialize boot thread (ignore the 0k stack it says)");
-    kglobals.sched.lock().init_boot_thread();
+    println!("> Initialize initial process (ignore the 0k stack it says)");
+    kglobals.sched.lock().init_initial_process();
 
     println!(">> DONE");
 }

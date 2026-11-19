@@ -1,5 +1,5 @@
 use crate::klib;
-use alloc::rc::Rc;
+use alloc::rc::{Rc, Weak};
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -21,11 +21,11 @@ pub(crate) fn thread_entry_returned() -> ! {
 
 pub struct Thread<HW: klib::hal::Hardware> {
     arch_thread: HW::Thread,
+    process: Weak<RefCell<klib::tasks::process::Process<HW>>>,
     pub(super) waiting_mutex: Option<(
         klib::tasks::mutex::RawMutexHandle<HW>,
         klib::diag::SourceLocation,
     )>,
-    pub(super) priority: i8,
     pub(super) shutdown: bool,
 }
 
@@ -35,16 +35,19 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
     // Those init_ parameters are only valid for initial setup.
     // This of course applies to any new thread, but the boot thread is exception: It's thread for already running code.
     pub fn new(
+        process: &klib::tasks::process::ProcessHandle<HW>,
         init_stack_size: usize,
         init_main_func: fn(data: usize),
         init_data: usize,
     ) -> ThreadHandle<HW> {
-        Rc::new(RefCell::new(Self {
+        let thr = Rc::new(RefCell::new(Self {
+            process: Rc::downgrade(process),
             arch_thread: HW::thread_create(init_stack_size, init_main_func, init_data),
             waiting_mutex: None,
-            priority: 0,
             shutdown: false,
-        }))
+        }));
+        process.borrow_mut().add_thread(&thr);
+        thr
     }
     /// Switches from one thread context to another without keeping `RefCell`
     /// borrows alive on a suspended stack.
@@ -77,6 +80,9 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
 
         unsafe { HW::thread_switch(from_arch, to_arch) };
     }
+    pub fn process(&self) -> klib::tasks::process::ProcessHandle<HW> {
+        self.process.upgrade().expect("process no longer exists")
+    }
 }
 
 #[cfg(test)]
@@ -87,10 +93,10 @@ mod tests {
 
     #[test]
     fn new_thread_starts_runnable_at_default_priority_without_a_mutex() {
-        let thread = Thread::<klib::hal::TestHW>::new(1024, entry, 7);
+        let process = klib::tasks::process::Process::new();
+        let thread = Thread::<klib::hal::TestHW>::new(&process, 1024, entry, 7);
         let thread = thread.borrow();
 
-        assert_eq!(thread.priority, 0);
         assert!(!thread.shutdown);
         assert!(thread.waiting_mutex.is_none());
         assert_eq!(thread.arch_thread.init_stack_size, 1024);
@@ -105,8 +111,9 @@ mod tests {
 
     #[test]
     fn switching_test_threads_is_supported_by_test_arch() {
-        let from = Thread::<klib::hal::TestHW>::new(0, entry, 0);
-        let to = Thread::<klib::hal::TestHW>::new(0, entry, 0);
+        let process = klib::tasks::process::Process::new();
+        let from = Thread::<klib::hal::TestHW>::new(&process, 0, entry, 0);
+        let to = Thread::<klib::hal::TestHW>::new(&process, 0, entry, 0);
 
         unsafe { Thread::switch(&from, &to) };
 

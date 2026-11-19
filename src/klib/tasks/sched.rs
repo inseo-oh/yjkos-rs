@@ -38,7 +38,7 @@ impl<HW: klib::hal::Hardware> SwitchRequest<HW> {
 // Scheduler mutations that can race with the timer or mutex paths run with
 // interrupts disabled.
 
-const BOOT_THREAD_PRIORITY: i8 = 20;
+const KERNEL_PROCESS_PRIORITY: i8 = 20;
 
 pub struct Scheduler<HW: klib::hal::Hardware> {
     // Each queue has associated priority, and when selecting the next thread we
@@ -53,6 +53,7 @@ pub struct Scheduler<HW: klib::hal::Hardware> {
     current_queue: Option<QueueHandle<HW>>,
     running_thread: Option<klib::tasks::thread::ThreadHandle<HW>>,
     pub(in crate::klib) mutex_wait_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    kernel_process: Option<klib::tasks::process::ProcessHandle<HW>>,
 }
 
 impl<HW: klib::hal::Hardware> Scheduler<HW> {
@@ -62,7 +63,14 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             current_queue: None,
             running_thread: None,
             mutex_wait_threads: Vec::new(),
+            kernel_process: None,
         }
+    }
+    pub fn kernel_process(&self) -> klib::tasks::process::ProcessHandle<HW> {
+        self.kernel_process
+            .as_ref()
+            .expect("kernel process not initialized yet")
+            .clone()
     }
     fn alloc_queue(
         &mut self,
@@ -200,17 +208,36 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         let mut result;
         loop {
-            result = self.pick_next_task_from_mutex_wait_list().or_else(|| {
-                self.pick_next_queue()
-                    .and_then(|queue| queue.borrow_mut().threads.pop())
-            });
+            result = self
+                .pick_next_task_from_mutex_wait_list()
+                .or_else(|| {
+                    self.pick_next_queue()
+                        .and_then(|queue| queue.borrow_mut().threads.pop())
+                })
+                .or_else(|| {
+                    self.current_queue
+                        .as_ref()
+                        .and_then(|queue| queue.borrow_mut().threads.pop())
+                });
             if result.as_ref().is_none_or(|t| !t.borrow().shutdown) {
                 break;
             }
             // The thread will be shutdown at this point.
             drop(result);
         }
+        if result
+            .as_ref()
+            .is_some_and(|thr| Rc::ptr_eq(&thr, self.running_thread()))
+        {
+            // Make sure we don't pick same thread again.
+            return None;
+        }
         result
+    }
+    fn running_thread(&self) -> &klib::tasks::thread::ThreadHandle<HW> {
+        self.running_thread
+            .as_ref()
+            .expect("there's no running thread")
     }
     pub(super) fn wait_mutex(
         &mut self,
@@ -218,17 +245,13 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         lock_source: klib::diag::SourceLocation,
         irq_disable: klib::irq::DisableGuard<HW>,
     ) -> SwitchRequest<HW> {
-        self.running_thread
-            .as_mut()
-            .unwrap()
-            .borrow_mut()
-            .waiting_mutex = Some((mutex.clone(), lock_source));
+        self.running_thread().borrow_mut().waiting_mutex = Some((mutex.clone(), lock_source));
         let next_thread = self
             .pick_next_task()
             .expect("there is no other thread to wait for mutex");
         self.mutex_wait_threads
-            .insert(0, self.running_thread.as_mut().unwrap().clone());
-        let old_thread = self.running_thread.as_mut().unwrap().clone();
+            .insert(0, self.running_thread().clone());
+        let old_thread = self.running_thread().clone();
         assert!(!Rc::ptr_eq(&old_thread, &next_thread));
         self.running_thread = Some(next_thread.clone());
         SwitchRequest {
@@ -239,7 +262,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
     }
     pub fn queue(&mut self, thread: klib::tasks::thread::ThreadHandle<HW>) {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        let queue = self.get_queue(thread.borrow().priority);
+        let queue = self.get_queue(thread.borrow().process().borrow().priority);
         queue.borrow_mut().threads.insert(0, thread);
     }
     /// Updates scheduler state and returns an owned switch request.
@@ -250,7 +273,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
     pub fn prepare_schedule(&mut self) -> Option<SwitchRequest<HW>> {
         let irq_disable = klib::irq::DisableGuard::<HW>::lock();
         if let Some(next_thread) = self.pick_next_task() {
-            // Note that it is safe to call prepare_schedule() before calling init_boot_thread(),
+            // Note that it is safe to call prepare_schedule() before calling init_initial_process(),
             // as long as it's called before creating any other threads.
             //
             // If there are no other threads to switch, we will never reach here,
@@ -268,12 +291,24 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         }
         None
     }
-    pub fn init_boot_thread(&mut self) {
+    pub fn init_initial_process(&mut self) {
         assert!(self.running_thread.is_none());
         // Init values for thread is not used, as those are only used for fresh new
         // threads, and boot thread is what we are running now.
-        self.running_thread = Some(klib::tasks::thread::Thread::new(0, dummy_entry_fn, 0));
-        self.running_thread.as_mut().unwrap().borrow_mut().priority = BOOT_THREAD_PRIORITY;
+        self.kernel_process = Some(klib::tasks::process::Process::new());
+        self.running_thread = Some(klib::tasks::thread::Thread::new(
+            &self.kernel_process(),
+            0,
+            dummy_entry_fn,
+            0,
+        ));
+        self.running_thread
+            .as_mut()
+            .unwrap()
+            .borrow()
+            .process()
+            .borrow_mut()
+            .priority = KERNEL_PROCESS_PRIORITY;
     }
 }
 
@@ -294,8 +329,9 @@ mod tests {
     fn entry(_unused: usize) {}
 
     fn make_thread(priority: i8) -> klib::tasks::thread::ThreadHandle<klib::hal::TestHW> {
-        let thread = klib::tasks::thread::Thread::new(0, entry, 0);
-        thread.borrow_mut().priority = priority;
+        let process = klib::tasks::process::Process::new();
+        process.borrow_mut().priority = priority;
+        let thread = klib::tasks::thread::Thread::new(&process, 0, entry, 0);
         thread
     }
 
@@ -322,10 +358,10 @@ mod tests {
     #[test]
     fn boot_thread_initialization_sets_boot_priority() {
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.init_boot_thread();
+        scheduler.init_initial_process();
 
         let running = scheduler.running_thread.as_ref().unwrap().borrow();
-        assert_eq!(running.priority, BOOT_THREAD_PRIORITY);
+        assert_eq!(running.process().borrow().priority, KERNEL_PROCESS_PRIORITY);
         assert!(!running.shutdown);
         assert!(running.waiting_mutex.is_none());
     }
@@ -436,7 +472,7 @@ mod tests {
     #[test]
     fn schedule_switches_threads_and_requeues_the_previous_runner() {
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.init_boot_thread();
+        scheduler.init_initial_process();
         let boot_thread = scheduler.running_thread.as_ref().unwrap().clone();
         let worker = make_thread(0);
         scheduler.queue(worker.clone());
@@ -472,7 +508,7 @@ mod tests {
     #[test]
     fn waiting_thread_is_released_and_requeued_when_mutex_becomes_available() {
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.init_boot_thread();
+        scheduler.init_initial_process();
         let boot_thread = scheduler.running_thread.as_ref().unwrap().clone();
         let next_thread = make_thread(0);
         scheduler.queue(next_thread.clone());
@@ -513,7 +549,7 @@ mod tests {
     #[test]
     fn shutdown_mutex_waiter_unlocks_mutex_and_is_discarded() {
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.init_boot_thread();
+        scheduler.init_initial_process();
         let boot_thread = scheduler.running_thread.as_ref().unwrap().clone();
         let next_thread = make_thread(0);
         scheduler.queue(next_thread.clone());
