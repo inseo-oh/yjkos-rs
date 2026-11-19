@@ -3,7 +3,7 @@ use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, ptr::null_mut};
 
 pub struct VirtualMemoryManager<HW> {
-    kernel_address_space: Option<AddressSpaceHandle<HW>>,
+    pub(crate) kernel_address_space: Option<AddressSpaceHandle<HW>>,
 }
 
 impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
@@ -396,8 +396,8 @@ pub fn map_unaligned_at<HW: klib::hal::Hardware>(
 
 #[repr(C)]
 pub struct AddressSpace<HW> {
-    object_list: Vec<ObjectHandle<HW>>,
-    uncommitted_objects: Vec<UncommittedObjectHandle<HW>>,
+    pub(crate) object_list: Vec<ObjectHandle<HW>>,
+    pub(crate) uncommitted_objects: Vec<UncommittedObjectHandle<HW>>,
     is_user: bool,
 }
 type AddressSpaceHandle<HW> = Rc<RefCell<AddressSpace<HW>>>;
@@ -571,12 +571,18 @@ fn create_object<HW>(
 }
 
 #[repr(C)]
-struct UncommittedObject<HW> {
-    object: ObjectHandle<HW>,
+pub(crate) struct UncommittedObject<HW> {
+    pub(crate) object: ObjectHandle<HW>,
     bitmap: Vec<klib::bitmap::Word>,
 }
-type UncommittedObjectHandle<HW> = Rc<RefCell<UncommittedObject<HW>>>;
-impl<HW> UncommittedObject<HW> {
+pub(crate) type UncommittedObjectHandle<HW> = Rc<RefCell<UncommittedObject<HW>>>;
+impl<HW: klib::hal::Hardware> UncommittedObject<HW> {
+    pub(crate) fn uncommited_count(&mut self) -> usize {
+        let page_count = self.object.borrow().size / HW::PAGE_SIZE;
+        (0..page_count)
+            .filter(|&page_index| self.is_page_uncommitted(page_index))
+            .count()
+    }
     fn is_page_uncommitted(&mut self, page_index: usize) -> bool {
         klib::Bitmap(&mut self.bitmap[..]).is_bit_set(page_index)
     }

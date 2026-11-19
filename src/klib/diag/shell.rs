@@ -5,13 +5,13 @@ use alloc::{
     vec::Vec,
 };
 
-struct PrintCommand;
-impl<HW: klib::hal::Hardware> Command<HW> for PrintCommand {
+struct ShowCommand;
+impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
     fn name(&self) -> &'static str {
-        "print"
+        "show"
     }
     fn help(&self) -> &'static str {
-        "i am print command"
+        "shows information about kernel"
     }
     fn parameter(
         &self,
@@ -20,15 +20,94 @@ impl<HW: klib::hal::Hardware> Command<HW> for PrintCommand {
     ) -> Option<Box<dyn Completable>> {
         match argument_index {
             0 => Some(KeywordParameter::new(&[
-                Keyword::new("world", "world keyword"),
-                Keyword::new("bye", "bye keyword"),
+                Keyword::new("pmemory", "physical memory"),
+                Keyword::new("vmemory", "virtual memory"),
             ])),
             _ => None,
         }
     }
 
-    fn execute(&self, _arguments: &[String], _kglobals: &klib::KGlobals<HW>) {
-        println!("hello, world!");
+    fn execute(&self, arguments: &[String], kglobals: &klib::KGlobals<HW>) {
+        let typ = if let Some(a) = arguments.first() {
+            a
+        } else {
+            println!("usage: show <type>");
+            return;
+        };
+        if typ == "pmemory" {
+            println!("# Physical memory information");
+            println!();
+            println!("| BASE       | SIZE       | PAGES   |");
+            println!("+------------+------------+---------+");
+            for pool in &kglobals.pmm.lock().pools {
+                let base = pool.base_addr.addr();
+                println!(
+                    "| {:#10x} | {:7}KiB | {:7} |",
+                    base,
+                    (pool.page_count * HW::PAGE_SIZE) / 1024,
+                    pool.page_count
+                );
+            }
+            println!();
+            println!(
+                "Total memory is around {}MiB",
+                kglobals.pmm.lock().get_total_mem_size() / (1024 * 1024)
+            );
+            println!("(Not including memory used for kernel image or computer itself)");
+        } else if typ == "vmemory" {
+            let vmm = kglobals.vmm.lock();
+            let kas_h = vmm.kernel_address_space.as_ref().unwrap();
+            println!("# Virtual memory information (Kernel address space)");
+            println!();
+            println!("1. Unallocated virtual memory regions");
+            println!("| BASE       | SIZE       | PAGES   |");
+            println!("+------------+------------+---------+");
+            for obj_h in &kas_h.borrow().object_list {
+                let obj = obj_h.borrow();
+                let base = obj.start.addr();
+                println!(
+                    "| {:#10x} | {:7}KiB | {:7} |",
+                    base,
+                    (obj.size) / 1024,
+                    (obj.size / HW::PAGE_SIZE)
+                );
+            }
+            println!();
+            println!("2. Uncommited virtual memory regions");
+            println!(
+                "| PHYS-BASE  | VIRT-BASE  | SIZE       | PAGES   | UNCOMMITED PAGES    | FLAGS |"
+            );
+            println!(
+                "+------------+------------+------------+---------+---------------------+-------+"
+            );
+            for uobj_h in &kas_h.borrow().uncommitted_objects {
+                let uncommited_count = uobj_h.borrow_mut().uncommited_count();
+                let uobj = uobj_h.borrow();
+                let obj = uobj.object.borrow();
+                let vbase = obj.start.addr();
+                if let Some(pbase) = obj.phys_base.map(klib::PhysicalPtr::addr) {
+                    print!("| {:#10x} ", pbase,);
+                } else {
+                    print!("| N/A        ");
+                }
+                print!(
+                    "| {:#10x} | {:7}KiB | {:7} | {:7}({:7}KiB) | ",
+                    vbase,
+                    obj.size / 1024,
+                    (obj.size / HW::PAGE_SIZE),
+                    uncommited_count,
+                    (uncommited_count * HW::PAGE_SIZE) / 1024,
+                );
+                print!("{}", if obj.flags.read { "R" } else { "-" });
+                print!("{}", if obj.flags.write { "W" } else { "-" });
+                print!("{}", if obj.flags.no_cache { "I" } else { "-" });
+                println!("   |");
+            }
+            println!();
+            println!("FLAGS: R=Read, W=Write, I=(cache)Inhibit");
+        } else {
+            unreachable!();
+        }
     }
 }
 
@@ -69,7 +148,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
 
 fn commands<HW: klib::hal::Hardware>() -> Vec<Box<dyn Command<HW>>> {
     let mut commands: Vec<Box<dyn Command<HW>>> = Vec::new();
-    commands.push(Box::new(PrintCommand));
+    commands.push(Box::new(ShowCommand));
     commands.push(Box::new(TestCommand));
     commands
 }
