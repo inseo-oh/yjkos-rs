@@ -267,7 +267,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
                 Keyword::new("thread", "run the multithreading stress test"),
                 Keyword::new(
                     "usermode",
-                    "test ring 3 syscalls and process switching (ends at the expected general protection fault)",
+                    "load an embedded ring 3 program and test syscalls (ends at the expected general protection fault)",
                 ),
             ])),
             _ => None,
@@ -291,86 +291,52 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
 
 const USER_MODE_TEST_REGION_START: usize = 0x8000_0000;
 const USER_MODE_TEST_TIMEOUT_TICKS: u32 = 5_000;
+const USER_PROGRAM_ENTRY_OFFSET: usize = 0;
 
-fn make_user_mode_test_worker(
-    syscall_vector: u8,
+// Embedded flat user program template. The loader patches the syscall vector,
+// output byte, and absolute data addresses before copying it into user memory.
+const USER_PROGRAM_IMAGE: [u8; 58] = [
+    0xb8, 0, 0, 0, 0, // mov eax, SYSCALL_WRITE_CHAR
+    0xbb, 0, 0, 0, 0, // mov ebx, output_char
+    0xcd, 0, // int syscall_vector
+    0xb8, 0xff, 0, 0, 0, // mov eax, invalid syscall number
+    0xcd, 0, // int syscall_vector
+    0x3d, 1, 0, 0, 0x80, // cmp eax, SYSCALL_RESULT_BAD_CALL_NUM
+    0x75, 0x0c, // jne failure marker
+    0xc7, 0x05, 0, 0, 0, 0, 1, 0, 0, 0, // mov [counter_addr], 1
+    0xeb, 0x0a, // jmp wait
+    0xc7, 0x05, 0, 0, 0, 0, 2, 0, 0, 0, // failure: mov [counter_addr], 2
+    0xa1, 0, 0, 0, 0, // wait: mov eax, [release_addr]
+    0x85, 0xc0, // test eax, eax
+    0x74, 0xf7, // jz wait
+    0xfa, // cli
+];
+
+fn load_embedded_user_program<HW: klib::hal::Hardware>(
+    code_pages: klib::mem::pmm::AllocatedPageInfo,
     output_char: u8,
     counter_addr: usize,
     release_addr: usize,
-) -> [u8; 58] {
-    // write_char(output_char)
-    // invalid_syscall() must return SYSCALL_RESULT_BAD_CALL_NUM in EAX
-    // Write 1 to counter_addr on success or 2 on failure.
-    // wait:
-    //   mov eax, dword ptr [release_addr]
-    //   test eax, eax
-    //   jz wait
-    //   cli
-    let mut code = [
-        0xb8,
-        0,
-        0,
-        0,
-        0, // mov eax, SYSCALL_WRITE_CHAR
-        0xbb,
-        0,
-        0,
-        0,
-        0, // mov ebx, output_char
-        0xcd,
-        syscall_vector, // int syscall_vector
-        0xb8,
-        0xff,
-        0,
-        0,
-        0, // mov eax, invalid syscall number
-        0xcd,
-        syscall_vector, // int syscall_vector
-        0x3d,
-        1,
-        0,
-        0,
-        0x80, // cmp eax, SYSCALL_RESULT_BAD_CALL_NUM
-        0x75,
-        0x0c, // jne failure marker
-        0xc7,
-        0x05,
-        0,
-        0,
-        0,
-        0,
-        1,
-        0,
-        0,
-        0, // mov [counter_addr], 1
-        0xeb,
-        0x0a, // jmp wait
-        0xc7,
-        0x05,
-        0,
-        0,
-        0,
-        0,
-        2,
-        0,
-        0,
-        0, // failure: mov [counter_addr], 2
-        0xa1,
-        0,
-        0,
-        0,
-        0, // wait: mov eax, [release_addr]
-        0x85,
-        0xc0, // test eax, eax
-        0x74,
-        0xf7, // jz wait
-        0xfa, // cli
-    ];
-    code[6..10].copy_from_slice(&(output_char as u32).to_le_bytes());
-    code[28..32].copy_from_slice(&(counter_addr as u32).to_le_bytes());
-    code[40..44].copy_from_slice(&(counter_addr as u32).to_le_bytes());
-    code[49..53].copy_from_slice(&(release_addr as u32).to_le_bytes());
-    code
+) -> Result<usize, &'static str> {
+    if USER_PROGRAM_IMAGE.len() > HW::PAGE_SIZE {
+        return Err("embedded user program does not fit in one page");
+    }
+
+    let mut image = USER_PROGRAM_IMAGE;
+    image[6..10].copy_from_slice(&(output_char as u32).to_le_bytes());
+    image[11] = HW::SYSCALL_TRAP_NUMBER as u8;
+    image[18] = HW::SYSCALL_TRAP_NUMBER as u8;
+    image[28..32].copy_from_slice(&(counter_addr as u32).to_le_bytes());
+    image[40..44].copy_from_slice(&(counter_addr as u32).to_le_bytes());
+    image[49..53].copy_from_slice(&(release_addr as u32).to_le_bytes());
+
+    let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+    HW::mmu_scratch_map(code_pages.base, false);
+    unsafe {
+        core::ptr::write_bytes(HW::SCRATCH_MAP_BASE, 0, HW::PAGE_SIZE);
+        core::ptr::copy_nonoverlapping(image.as_ptr(), HW::SCRATCH_MAP_BASE, image.len());
+    }
+    Ok(USER_PROGRAM_ENTRY_OFFSET)
 }
 
 struct UserModeTestProcess<HW: klib::hal::Hardware> {
@@ -449,25 +415,17 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
         Ok::<(), &'static str>(())
     })?;
 
-    let worker_code = make_user_mode_test_worker(
-        HW::SYSCALL_TRAP_NUMBER as u8,
+    let entry_offset = load_embedded_user_program::<HW>(
+        code_pages,
         b'A' + process_index as u8,
         data_addr.addr(),
         data_addr.addr() + 4,
-    );
+    )?;
     // Both syscall calls happen at CPL 3. The invalid call's return code is
     // checked before the process reports success. After the shell releases it,
     // CLI should raise #GP, proving execution remained in ring 3.
     {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        HW::mmu_scratch_map(code_pages.base, false);
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                worker_code.as_ptr(),
-                HW::SCRATCH_MAP_BASE,
-                worker_code.len(),
-            )
-        }
         HW::mmu_scratch_map(data_pages.base, false);
         unsafe { core::ptr::write_bytes(HW::SCRATCH_MAP_BASE.cast::<u32>(), 0, 2) };
     }
@@ -480,7 +438,7 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
         &user_process,
         klib::tasks::thread::THREAD_STACK_SIZE,
         klib::hal::ThreadStart::User {
-            entry: code_addr.addr(),
+            entry: code_addr.addr() + entry_offset,
         },
     )?;
     Ok(UserModeTestProcess {
@@ -513,7 +471,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
         }
     }
 
-    println!("Starting two user processes; expect syscall output A/B and #GP from CLI.");
+    println!("Loading two embedded user programs; expect syscall output A/B and #GP from CLI.");
     {
         // Keep interrupts disabled until the owned switch request has taken
         // over the guard, then restore them as soon as this shell thread runs
