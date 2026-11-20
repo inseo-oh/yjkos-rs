@@ -106,8 +106,8 @@ impl klib::hal::Hardware for Hardware {
     fn mmu_scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) {
         mmu::scratch_map(phys_base, no_cache);
     }
-    fn create_address_space(base: *mut u8, page_count: usize) -> Self::AddressSpace {
-        mmu::AddressSpace::new(base, page_count)
+    fn create_address_space(base: *mut u8, page_count: usize, is_user: bool) -> Self::AddressSpace {
+        mmu::AddressSpace::new(base, page_count, is_user)
     }
 
     // Threading ===============================================================

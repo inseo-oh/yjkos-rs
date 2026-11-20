@@ -75,8 +75,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
                         return Err(error);
                     }
                 };
-                let mapping_result = {
-                    let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+                let mapping_result = address_space.borrow_mut().with_active(|| {
                     HW::mmu_map(
                         object.borrow().start,
                         allocation.base,
@@ -88,7 +87,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
                         },
                         true,
                     )
-                };
+                });
                 if let Err(error) = mapping_result {
                     {
                         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
@@ -100,7 +99,6 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
                     unsafe { kglobals.pmm.lock().free(allocation) };
                     return Err(error);
                 }
-                address_space.borrow_mut().snapshot_current();
             }
             Some(object)
         };
@@ -109,11 +107,18 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
             .as_ref()
             .map(|o| o.borrow().start.cast::<u32>())
             .unwrap_or(ptr::null_mut());
+        let arch_thread = if is_user_process {
+            address_space
+                .borrow_mut()
+                .with_active(|| HW::thread_create(init_stack_base, init_stack_size, start))
+        } else {
+            HW::thread_create(init_stack_base, init_stack_size, start)
+        };
         let thr = Rc::new(RefCell::new(Self {
             kglobals,
             stack_object,
             process: Rc::downgrade(process),
-            arch_thread: HW::thread_create(init_stack_base, init_stack_size, start),
+            arch_thread,
             waiting_mutex: None,
             shutdown: false,
         }));

@@ -4,8 +4,23 @@ use core::ptr::null_mut;
 use crate::klib;
 
 pub trait HardwareAddressSpace {
+    fn current() -> Self
+    where
+        Self: Sized;
     fn snapshot_current(&mut self);
     fn load(&self);
+
+    fn with_loaded<T>(&mut self, f: impl FnOnce() -> T) -> T
+    where
+        Self: Sized,
+    {
+        let current = Self::current();
+        self.load();
+        let result = f();
+        self.snapshot_current();
+        current.load();
+        result
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -25,7 +40,7 @@ pub trait Hardware: 'static {
     type Thread;
     type AddressSpace: HardwareAddressSpace;
 
-    fn create_address_space(base: *mut u8, page_count: usize) -> Self::AddressSpace;
+    fn create_address_space(base: *mut u8, page_count: usize, is_user: bool) -> Self::AddressSpace;
     fn reboot();
     fn hcf() -> !;
     fn irq_enabled() -> bool;
@@ -87,6 +102,10 @@ std::thread_local! {
 pub struct TestHWAddressSpace;
 
 impl HardwareAddressSpace for TestHWAddressSpace {
+    fn current() -> Self {
+        Self
+    }
+
     fn snapshot_current(&mut self) {}
     fn load(&self) {}
 }
@@ -187,7 +206,11 @@ impl Hardware for TestHW {
 
     type AddressSpace = TestHWAddressSpace;
 
-    fn create_address_space(_base: *mut u8, _page_count: usize) -> Self::AddressSpace {
+    fn create_address_space(
+        _base: *mut u8,
+        _page_count: usize,
+        _is_user: bool,
+    ) -> Self::AddressSpace {
         TestHWAddressSpace
     }
 }

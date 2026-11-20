@@ -438,7 +438,7 @@ pub struct AddressSpace {
 }
 
 impl AddressSpace {
-    pub fn new(base: *mut u8, page_count: usize) -> Self {
+    pub fn new(base: *mut u8, page_count: usize, is_user: bool) -> Self {
         assert!(klib::miscmath::is_ptr_aligned(
             base,
             super::Hardware::PAGE_SIZE
@@ -450,17 +450,30 @@ impl AddressSpace {
         base.addr()
             .checked_add(size)
             .expect("address space range overflow");
-        // Each process has its own lower half page directory entries. Kernel
-        // PDEs are shared and therefore stay untouched during address-space
-        // switches.
+        // A user address space starts without user mappings. Its page tables
+        // are built while this address space is temporarily loaded. Kernel
+        // PDEs live in the upper half and are shared, so they are not stored
+        // here or affected by load().
+        let mut pde_list = Vec::with_capacity(KERNEL_PDE_START as usize);
+        if is_user {
+            pde_list.resize(KERNEL_PDE_START as usize, 0);
+        } else {
+            for pde_off in 0..KERNEL_PDE_START {
+                pde_list.push(read_pde(pde_off));
+            }
+        }
+        Self { pde_list }
+    }
+}
+impl klib::hal::HardwareAddressSpace for AddressSpace {
+    fn current() -> Self {
         let mut pde_list = Vec::with_capacity(KERNEL_PDE_START as usize);
         for pde_off in 0..KERNEL_PDE_START {
             pde_list.push(read_pde(pde_off));
         }
         Self { pde_list }
     }
-}
-impl klib::hal::HardwareAddressSpace for AddressSpace {
+
     fn snapshot_current(&mut self) {
         for (pde_off, pde) in self.pde_list.iter_mut().enumerate() {
             *pde = read_pde(pde_off as u32);

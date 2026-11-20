@@ -290,7 +290,6 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
 }
 
 const USER_MODE_TEST_REGION_START: usize = 0x8000_0000;
-const USER_MODE_TEST_PDE_SIZE: usize = 4 * 1024 * 1024;
 const USER_MODE_TEST_TIMEOUT_TICKS: u32 = 5_000;
 
 fn make_user_mode_test_worker(counter_addr: usize, release_addr: usize) -> [u8; 20] {
@@ -317,12 +316,10 @@ struct UserModeTestProcess<HW: klib::hal::Hardware> {
 
 fn create_user_mode_test_process<HW: klib::hal::Hardware>(
     kglobals: &'static klib::KGlobals<HW>,
-    region_index: usize,
 ) -> Result<UserModeTestProcess<HW>, &'static str> {
-    let region_start = USER_MODE_TEST_REGION_START + region_index * USER_MODE_TEST_PDE_SIZE;
     let user_address_space = klib::mem::vmm::AddressSpace::<HW>::new(
-        region_start as *mut u8,
-        USER_MODE_TEST_PDE_SIZE,
+        USER_MODE_TEST_REGION_START as *mut u8,
+        HW::KERNEL_SPACE_BASE_ADDRESS - USER_MODE_TEST_REGION_START,
         true,
     );
     let code_pages = match kglobals.pmm.lock().malloc(1) {
@@ -334,12 +331,10 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
         Err(error) => return Err(error),
     };
 
-    // Give each process a separate 4 MiB region (and PDE). Address-space
-    // snapshots currently share page-table pointers for PDEs already present
-    // when the snapshot is taken, so reusing a virtual address here would
-    // overwrite the other process's PTEs.
-    let code_addr = region_start as *mut u8;
-    let data_addr = (region_start + HW::PAGE_SIZE) as *mut u8;
+    // Both processes use the same virtual addresses, backed by distinct
+    // physical pages in their private user page tables.
+    let code_addr = USER_MODE_TEST_REGION_START as *mut u8;
+    let data_addr = (USER_MODE_TEST_REGION_START + HW::PAGE_SIZE) as *mut u8;
     klib::mem::vmm::map_at(
         &user_address_space,
         code_addr,
@@ -365,8 +360,7 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
         },
     )?;
 
-    let code_mapping_result = {
-        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+    user_address_space.borrow_mut().with_active(|| {
         HW::mmu_map(
             code_addr,
             code_pages.base,
@@ -378,11 +372,7 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
                 no_cache: false,
             },
             true,
-        )
-    };
-    code_mapping_result?;
-    let data_mapping_result = {
-        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        )?;
         HW::mmu_map(
             data_addr,
             data_pages.base,
@@ -394,11 +384,9 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
                 no_cache: false,
             },
             true,
-        )
-    };
-    data_mapping_result?;
-
-    user_address_space.borrow_mut().snapshot_current();
+        )?;
+        Ok::<(), &'static str>(())
+    })?;
 
     let worker_code = make_user_mode_test_worker(data_addr.addr(), data_addr.addr() + 4);
     // The user process writes a progress word then waits for the shell to
@@ -438,7 +426,8 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
 
 fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>) {
     if USER_MODE_TEST_REGION_START >= HW::KERNEL_SPACE_BASE_ADDRESS
-        || HW::KERNEL_SPACE_BASE_ADDRESS - USER_MODE_TEST_REGION_START < USER_MODE_TEST_PDE_SIZE * 2
+        || HW::KERNEL_SPACE_BASE_ADDRESS - USER_MODE_TEST_REGION_START
+            < klib::tasks::thread::THREAD_STACK_SIZE + HW::PAGE_SIZE * 2
     {
         println!("[FAIL] Hardware has no usable userspace test region");
         return;
@@ -446,7 +435,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
 
     let mut user_processes = Vec::new();
     for index in 0..2 {
-        match create_user_mode_test_process(kglobals, index) {
+        match create_user_mode_test_process(kglobals) {
             Ok(process) => user_processes.push(process),
             Err(error) => {
                 println!(

@@ -413,7 +413,7 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
             .checked_add(size.checked_sub(1).expect("address space size is zero"))
             .expect("address space range overflow");
         let address_space = Rc::new(RefCell::new(AddressSpace {
-            hw_address_space: HW::create_address_space(start, size / HW::PAGE_SIZE),
+            hw_address_space: HW::create_address_space(start, size / HW::PAGE_SIZE, is_user),
             object_list: Default::default(),
             uncommitted_objects: Default::default(),
             is_user,
@@ -430,6 +430,13 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
     }
     pub fn load(&self) {
         self.hw_address_space.load();
+    }
+    /// Runs an MMU operation with this address space's user PDEs loaded.
+    /// The current user PDEs are restored afterward; kernel PDEs are shared
+    /// and are never changed by the address-space load.
+    pub fn with_active<T>(&mut self, f: impl FnOnce() -> T) -> T {
+        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        self.hw_address_space.with_loaded(f)
     }
     pub(in crate::klib) fn objects(&self) -> &[ObjectHandle<HW>] {
         &self.object_list
