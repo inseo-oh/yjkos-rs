@@ -267,7 +267,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
                 Keyword::new("thread", "run the multithreading stress test"),
                 Keyword::new(
                     "usermode",
-                    "test entering ring 3 (ends at the expected general protection fault)",
+                    "test switching between ring 3 processes (ends at the expected general protection fault)",
                 ),
             ])),
             _ => None,
@@ -290,33 +290,60 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
 }
 
 const USER_MODE_TEST_REGION_START: usize = 0x8000_0000;
+const USER_MODE_TEST_PDE_SIZE: usize = 4 * 1024 * 1024;
+const USER_MODE_TEST_TIMEOUT_TICKS: u32 = 5_000;
 
-fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>) {
-    let kernel_base = HW::KERNEL_SPACE_BASE_ADDRESS;
-    if USER_MODE_TEST_REGION_START >= kernel_base
-        || kernel_base - USER_MODE_TEST_REGION_START
-            < klib::tasks::thread::THREAD_STACK_SIZE + HW::PAGE_SIZE
-    {
-        println!("[FAIL] Hardware has no usable userspace test region");
-        return;
-    }
-    let user_size = kernel_base - USER_MODE_TEST_REGION_START;
+fn make_user_mode_test_worker(counter_addr: usize, release_addr: usize) -> [u8; 20] {
+    // mov dword ptr [counter_addr], 1
+    // wait:
+    //   mov eax, dword ptr [release_addr]
+    //   test eax, eax
+    //   jz wait
+    //   cli
+    let mut code = [
+        0xc7, 0x05, 0, 0, 0, 0, 1, 0, 0, 0, 0xa1, 0, 0, 0, 0, 0x85, 0xc0, 0x74, 0xf7, 0xfa,
+    ];
+    code[2..6].copy_from_slice(&(counter_addr as u32).to_le_bytes());
+    code[11..15].copy_from_slice(&(release_addr as u32).to_le_bytes());
+    code
+}
+
+struct UserModeTestProcess<HW: klib::hal::Hardware> {
+    // Keep the process alive; its threads hold only Weak process references.
+    _process: klib::tasks::process::ProcessHandle<HW>,
+    thread: klib::tasks::thread::ThreadHandle<HW>,
+    data_page: klib::PhysicalPtr,
+}
+
+fn create_user_mode_test_process<HW: klib::hal::Hardware>(
+    kglobals: &'static klib::KGlobals<HW>,
+    region_index: usize,
+) -> Result<UserModeTestProcess<HW>, &'static str> {
+    let region_start = USER_MODE_TEST_REGION_START + region_index * USER_MODE_TEST_PDE_SIZE;
     let user_address_space = klib::mem::vmm::AddressSpace::<HW>::new(
-        USER_MODE_TEST_REGION_START as *mut u8,
-        user_size,
+        region_start as *mut u8,
+        USER_MODE_TEST_PDE_SIZE,
         true,
     );
-    let user_pages = match kglobals.pmm.lock().malloc(1) {
+    let code_pages = match kglobals.pmm.lock().malloc(1) {
         Ok(pages) => pages,
-        Err(error) => {
-            println!("[FAIL] Could not allocate user-mode test pages: {}", error);
-            return;
-        }
+        Err(error) => return Err(error),
+    };
+    let data_pages = match kglobals.pmm.lock().malloc(1) {
+        Ok(pages) => pages,
+        Err(error) => return Err(error),
     };
 
-    let code_object = match klib::mem::vmm::map(
+    // Give each process a separate 4 MiB region (and PDE). Address-space
+    // snapshots currently share page-table pointers for PDEs already present
+    // when the snapshot is taken, so reusing a virtual address here would
+    // overwrite the other process's PTEs.
+    let code_addr = region_start as *mut u8;
+    let data_addr = (region_start + HW::PAGE_SIZE) as *mut u8;
+    klib::mem::vmm::map_at(
         &user_address_space,
-        user_pages.base,
+        code_addr,
+        code_pages.base,
         HW::PAGE_SIZE,
         klib::mem::vmm::MapFlags {
             read: true,
@@ -324,20 +351,25 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
             exec: true,
             no_cache: false,
         },
-    ) {
-        Ok(object) => object,
-        Err(error) => {
-            println!("[FAIL] Could not reserve user-mode code page: {}", error);
-            return;
-        }
-    };
-    let code_addr = code_object.borrow().start;
+    )?;
+    klib::mem::vmm::map_at(
+        &user_address_space,
+        data_addr,
+        data_pages.base,
+        HW::PAGE_SIZE,
+        klib::mem::vmm::MapFlags {
+            read: true,
+            write: true,
+            exec: false,
+            no_cache: false,
+        },
+    )?;
 
-    let mapping_result = {
+    let code_mapping_result = {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         HW::mmu_map(
             code_addr,
-            user_pages.base,
+            code_pages.base,
             1,
             klib::mem::vmm::MapFlags {
                 read: true,
@@ -348,53 +380,151 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
             true,
         )
     };
-    if let Err(error) = mapping_result {
-        println!("[FAIL] Could not map user-mode test pages: {}", error);
-        return;
-    }
+    code_mapping_result?;
+    let data_mapping_result = {
+        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        HW::mmu_map(
+            data_addr,
+            data_pages.base,
+            1,
+            klib::mem::vmm::MapFlags {
+                read: true,
+                write: true,
+                exec: false,
+                no_cache: false,
+            },
+            true,
+        )
+    };
+    data_mapping_result?;
 
     user_address_space.borrow_mut().snapshot_current();
 
-    // CLI is privileged at CPL 3 with IOPL 0, so reaching this byte from
-    // user mode must raise #GP. The normal exception handler prints the trap
-    // frame, including CS with RPL 3, then halts the machine.
+    let worker_code = make_user_mode_test_worker(data_addr.addr(), data_addr.addr() + 4);
+    // The user process writes a progress word then waits for the shell to
+    // release it. CLI is privileged at CPL 3 with IOPL 0, so the released
+    // process must raise #GP. The trap frame should show CS with RPL 3.
     {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        HW::mmu_scratch_map(user_pages.base, false);
-        unsafe { core::ptr::write_volatile(HW::SCRATCH_MAP_BASE, 0xfa) };
+        HW::mmu_scratch_map(code_pages.base, false);
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                worker_code.as_ptr(),
+                HW::SCRATCH_MAP_BASE,
+                worker_code.len(),
+            )
+        }
+        HW::mmu_scratch_map(data_pages.base, false);
+        unsafe { core::ptr::write_bytes(HW::SCRATCH_MAP_BASE.cast::<u32>(), 0, 2) };
     }
 
-    // Keep the process alive while the test runs. Its address space owns the
-    // mapped code and stack pages for the userspace test.
+    // Keep the process alive while its thread is queued. Thread stores only a
+    // Weak reference to its owning process.
     let user_process = klib::tasks::process::Process::new(user_address_space);
-    let user_thread = match klib::tasks::thread::Thread::new(
+    let thread = klib::tasks::thread::Thread::new(
         kglobals,
         &user_process,
         klib::tasks::thread::THREAD_STACK_SIZE,
         klib::hal::ThreadStart::User {
             entry: code_addr.addr(),
         },
-    ) {
-        Ok(thread) => thread,
-        Err(error) => {
-            println!("[FAIL] Could not create user-mode test thread: {}", error);
+    )?;
+    Ok(UserModeTestProcess {
+        _process: user_process,
+        thread,
+        data_page: data_pages.base,
+    })
+}
+
+fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>) {
+    if USER_MODE_TEST_REGION_START >= HW::KERNEL_SPACE_BASE_ADDRESS
+        || HW::KERNEL_SPACE_BASE_ADDRESS - USER_MODE_TEST_REGION_START < USER_MODE_TEST_PDE_SIZE * 2
+    {
+        println!("[FAIL] Hardware has no usable userspace test region");
+        return;
+    }
+
+    let mut user_processes = Vec::new();
+    for index in 0..2 {
+        match create_user_mode_test_process(kglobals, index) {
+            Ok(process) => user_processes.push(process),
+            Err(error) => {
+                println!(
+                    "[FAIL] Could not create user-mode process {}: {}",
+                    index, error
+                );
+                return;
+            }
+        }
+    }
+
+    println!("Starting two user processes; expecting both to run before #GP from CLI.");
+    {
+        // Keep interrupts disabled until the owned switch request has taken
+        // over the guard, then restore them as soon as this shell thread runs
+        // again so the workers can be observed while the timer keeps ticking.
+        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        let switch = {
+            let mut scheduler = kglobals.sched.lock();
+            for process in &user_processes {
+                scheduler.queue(process.thread.clone());
+            }
+            scheduler.prepare_schedule()
+        };
+        if let Some(switch) = switch {
+            switch.switch();
+        } else {
+            println!("[FAIL] Scheduler did not select a user-mode test thread");
             return;
         }
+    }
+
+    let start_tick = klib::ticktime::load();
+    let read_progress = || {
+        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        core::array::from_fn(|index| {
+            let process = &user_processes[index];
+            HW::mmu_scratch_map(process.data_page, false);
+            unsafe { core::ptr::read_volatile(HW::SCRATCH_MAP_BASE.cast::<u32>()) }
+        })
+    };
+    let progress = loop {
+        let progress = read_progress();
+        if progress == [1, 1]
+            || klib::ticktime::load().wrapping_sub(start_tick) >= USER_MODE_TEST_TIMEOUT_TICKS
+        {
+            break progress;
+        }
+        core::hint::spin_loop();
     };
 
-    println!("Switching to a user process. Expected result: #GP from CLI with CS RPL 3.");
-    // Preserve the caller's interrupt state across dropping the scheduler
-    // mutex and switching stacks. Its IRQ guard is nested inside this one.
+    {
+        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+        for process in &user_processes {
+            HW::mmu_scratch_map(process.data_page, false);
+            unsafe { core::ptr::write_volatile(HW::SCRATCH_MAP_BASE.cast::<u32>().add(1), 1) };
+        }
+    }
+    if progress == [1, 1] {
+        println!("[ OK ] Both user processes ran and were preempted across address-space switches");
+    } else {
+        println!(
+            "[FAIL] User-process progress was {}/{}",
+            progress[0], progress[1]
+        );
+    }
+
+    // Hand off once more. A released user process reaches CLI, producing the
+    // expected #GP with a ring-3 code selector; that exception halts the test.
     let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
     let switch = {
         let mut scheduler = kglobals.sched.lock();
-        scheduler.queue(user_thread);
         scheduler.prepare_schedule()
     };
     if let Some(switch) = switch {
         switch.switch();
     } else {
-        println!("[FAIL] Scheduler did not select the user-mode test thread");
+        println!("[FAIL] Scheduler did not resume a user-mode test process");
     }
 }
 
