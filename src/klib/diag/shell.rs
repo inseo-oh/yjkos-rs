@@ -49,6 +49,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
                 Keyword::new("hmemory", "kernel heap memory"),
                 Keyword::new("scheduler", "task scheduler"),
                 Keyword::new("ticktime", "ticktime value"),
+                Keyword::new("traps", "exception/interrupt traps"),
             ])),
             _ => None,
         }
@@ -233,6 +234,15 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             );
         } else if typ == "ticktime" {
             println!("Current ticktime: {}", klib::ticktime::load());
+        } else if typ == "traps" {
+            println!("# Traps information");
+            let trap_manager = kglobals.trap_manager.lock();
+            println!();
+            println!("| NO. | HANDLERS   |");
+            println!("+-----+------------+");
+            for n in 0..klib::traps::TRAP_COUNT {
+                println!("| {:3} | {:10} |", n, trap_manager.handler_count(n));
+            }
         } else {
             unreachable!();
         }
