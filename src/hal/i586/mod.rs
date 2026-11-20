@@ -62,6 +62,7 @@ impl klib::hal::Hardware for Hardware {
 
     const PAGE_SIZE: usize = mmu::PAGE_SIZE;
     const SCRATCH_MAP_BASE: *mut u8 = mmu::SCRATCH_MAP_BASE as *mut u8;
+    type AddressSpace = mmu::AddressSpace;
 
     fn kernel_vm_start_address() -> usize {
         mmu::kernel_vm_start()
@@ -100,21 +101,28 @@ impl klib::hal::Hardware for Hardware {
     fn mmu_scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) {
         mmu::scratch_map(phys_base, no_cache);
     }
+    fn create_address_space(base: *mut u8, page_count: usize) -> Self::AddressSpace {
+        mmu::AddressSpace::new(base, page_count)
+    }
 
     // Threading ===============================================================
 
     type Thread = thread::Thread;
 
     fn thread_create(
+        init_stack_base: *mut u32,
         init_stack_size: usize,
-        init_main_func: fn(data: usize),
-        init_data: usize,
+        start: klib::hal::ThreadStart,
     ) -> Self::Thread {
-        thread::create(init_stack_size, init_main_func, init_data)
+        thread::create(init_stack_base, init_stack_size, start)
     }
 
-    unsafe fn thread_switch(from: *mut Self::Thread, to: *mut Self::Thread) {
-        unsafe { thread::switch(from, to) };
+    unsafe fn thread_switch(
+        from: *mut Self::Thread,
+        to: *mut Self::Thread,
+        reload_address_space: bool,
+    ) {
+        unsafe { thread::switch(from, to, reload_address_space) };
     }
 
     unsafe fn enter_user_mode(entry: usize, user_stack: usize) -> ! {

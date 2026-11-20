@@ -319,7 +319,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         }
         if result
             .as_ref()
-            .is_some_and(|thr| Rc::ptr_eq(&thr, self.running_thread()))
+            .is_some_and(|thr| Rc::ptr_eq(thr, self.running_thread()))
         {
             // Make sure we don't pick same thread again.
             return None;
@@ -383,17 +383,24 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         }
         None
     }
-    pub fn init_initial_process(&mut self) {
+    pub fn init_initial_process(
+        &mut self,
+        kglobals: &'static klib::KGlobals<HW>,
+        kernel_address_space: klib::mem::vmm::AddressSpaceHandle<HW>,
+    ) -> Result<(), &'static str> {
         assert!(self.running_thread.is_none());
         // Init values for thread is not used, as those are only used for fresh new
         // threads, and boot thread is what we are running now.
-        self.kernel_process = Some(klib::tasks::process::Process::new());
+        self.kernel_process = Some(klib::tasks::process::Process::new(kernel_address_space));
         self.running_thread = Some(klib::tasks::thread::Thread::new(
+            kglobals,
             &self.kernel_process(),
             0,
-            dummy_entry_fn,
-            0,
-        ));
+            klib::hal::ThreadStart::Kernel {
+                entry: dummy_entry_fn,
+                data: 0,
+            },
+        )?);
         self.running_thread
             .as_mut()
             .unwrap()
@@ -401,6 +408,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             .process()
             .borrow_mut()
             .priority = KERNEL_PROCESS_PRIORITY;
+        Ok(())
     }
 }
 
@@ -418,13 +426,48 @@ fn dummy_entry_fn(_unused: usize) {
 mod tests {
     use super::*;
 
+    static TEST_KGLOBALS: klib::KGlobals<klib::hal::TestHW> = klib::KGlobals::new();
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn entry(_unused: usize) {}
 
-    fn make_thread(priority: i8) -> klib::tasks::thread::ThreadHandle<klib::hal::TestHW> {
-        let process = klib::tasks::process::Process::new();
+    fn test_kglobals() -> &'static klib::KGlobals<klib::hal::TestHW> {
+        &TEST_KGLOBALS
+    }
+
+    fn test_process(priority: i8) -> klib::tasks::process::ProcessHandle<klib::hal::TestHW> {
+        let address_space = klib::mem::vmm::AddressSpace::new(0x1000 as *mut u8, 16 * 4096, false);
+        let process = klib::tasks::process::Process::new(address_space);
         process.borrow_mut().priority = priority;
-        let thread = klib::tasks::thread::Thread::new(&process, 0, entry, 0);
-        thread
+        process
+    }
+
+    fn make_thread(
+        kglobals: &'static klib::KGlobals<klib::hal::TestHW>,
+        priority: i8,
+    ) -> (
+        klib::tasks::process::ProcessHandle<klib::hal::TestHW>,
+        klib::tasks::thread::ThreadHandle<klib::hal::TestHW>,
+    ) {
+        let process = test_process(priority);
+        let thread = klib::tasks::thread::Thread::new(
+            kglobals,
+            &process,
+            1024,
+            klib::hal::ThreadStart::Kernel { entry, data: 0 },
+        )
+        .unwrap();
+        (process, thread)
+    }
+
+    fn init_initial_process(
+        scheduler: &mut Scheduler<klib::hal::TestHW>,
+        kglobals: &'static klib::KGlobals<klib::hal::TestHW>,
+    ) {
+        let address_space = klib::mem::vmm::AddressSpace::new(0x1000 as *mut u8, 16 * 4096, false);
+        scheduler
+            .init_initial_process(kglobals, address_space)
+            .unwrap();
     }
 
     fn selected_priority(queue: Option<QueueHandle<klib::hal::TestHW>>) -> Option<i8> {
@@ -449,8 +492,10 @@ mod tests {
 
     #[test]
     fn boot_thread_initialization_sets_boot_priority() {
+        let _test_lock = TEST_LOCK.lock().unwrap();
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.init_initial_process();
+        let kglobals = test_kglobals();
+        init_initial_process(&mut scheduler, kglobals);
 
         let running = scheduler.running_thread.as_ref().unwrap().borrow();
         assert_eq!(running.process().borrow().priority, KERNEL_PROCESS_PRIORITY);
@@ -495,9 +540,14 @@ mod tests {
 
     #[test]
     fn queue_selection_respects_opportunity_weights_and_skips_current_queue() {
+        let _test_lock = TEST_LOCK.lock().unwrap();
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
+        let kglobals = test_kglobals();
+        let mut _processes = Vec::new();
         for priority in [0, 10, 20] {
-            scheduler.queue(make_thread(priority));
+            let (process, thread) = make_thread(kglobals, priority);
+            _processes.push(process);
+            scheduler.queue(thread);
         }
 
         let selected: Vec<_> = (0..6)
@@ -518,8 +568,10 @@ mod tests {
 
     #[test]
     fn queue_selection_returns_none_when_only_the_current_queue_is_runnable() {
+        let _test_lock = TEST_LOCK.lock().unwrap();
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.queue(make_thread(0));
+        let (_process, thread) = make_thread(test_kglobals(), 0);
+        scheduler.queue(thread);
         assert_eq!(selected_priority(scheduler.pick_next_queue()), Some(0));
 
         assert!(scheduler.pick_next_queue().is_none());
@@ -528,9 +580,11 @@ mod tests {
 
     #[test]
     fn queue_selection_ignores_empty_queues_and_resets_opportunities() {
+        let _test_lock = TEST_LOCK.lock().unwrap();
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
         scheduler.get_queue(0);
-        scheduler.queue(make_thread(10));
+        let (_process, thread) = make_thread(test_kglobals(), 10);
+        scheduler.queue(thread);
         scheduler.get_queue(20);
 
         assert_eq!(selected_priority(scheduler.pick_next_queue()), Some(10));
@@ -538,11 +592,14 @@ mod tests {
 
     #[test]
     fn picking_a_task_discards_shutdown_tasks_and_continues_to_another_queue() {
+        let _test_lock = TEST_LOCK.lock().unwrap();
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        let shutdown_thread = make_thread(0);
+        let kglobals = test_kglobals();
+        init_initial_process(&mut scheduler, kglobals);
+        let (_shutdown_process, shutdown_thread) = make_thread(kglobals, 0);
         shutdown_thread.borrow_mut().shutdown = true;
         scheduler.queue(shutdown_thread);
-        let live_thread = make_thread(10);
+        let (_live_process, live_thread) = make_thread(kglobals, 10);
         scheduler.queue(live_thread.clone());
 
         let selected = scheduler.pick_next_task().unwrap();
@@ -563,10 +620,12 @@ mod tests {
 
     #[test]
     fn schedule_switches_threads_and_requeues_the_previous_runner() {
+        let _test_lock = TEST_LOCK.lock().unwrap();
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.init_initial_process();
+        let kglobals = test_kglobals();
+        init_initial_process(&mut scheduler, kglobals);
         let boot_thread = scheduler.running_thread.as_ref().unwrap().clone();
-        let worker = make_thread(0);
+        let (_worker_process, worker) = make_thread(kglobals, 0);
         scheduler.queue(worker.clone());
 
         run_schedule(&mut scheduler);
@@ -599,10 +658,12 @@ mod tests {
 
     #[test]
     fn waiting_thread_is_released_and_requeued_when_mutex_becomes_available() {
+        let _test_lock = TEST_LOCK.lock().unwrap();
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.init_initial_process();
+        let kglobals = test_kglobals();
+        init_initial_process(&mut scheduler, kglobals);
         let boot_thread = scheduler.running_thread.as_ref().unwrap().clone();
-        let next_thread = make_thread(0);
+        let (_next_process, next_thread) = make_thread(kglobals, 0);
         scheduler.queue(next_thread.clone());
         let mutex = klib::tasks::mutex::RawMutex::<klib::hal::TestHW>::new();
         let lock_source = klib::diag::SourceLocation {
@@ -640,10 +701,12 @@ mod tests {
 
     #[test]
     fn shutdown_mutex_waiter_unlocks_mutex_and_is_discarded() {
+        let _test_lock = TEST_LOCK.lock().unwrap();
         let mut scheduler = Scheduler::<klib::hal::TestHW>::new();
-        scheduler.init_initial_process();
+        let kglobals = test_kglobals();
+        init_initial_process(&mut scheduler, kglobals);
         let boot_thread = scheduler.running_thread.as_ref().unwrap().clone();
-        let next_thread = make_thread(0);
+        let (_next_process, next_thread) = make_thread(kglobals, 0);
         scheduler.queue(next_thread.clone());
         let mutex = klib::tasks::mutex::RawMutex::<klib::hal::TestHW>::new();
         let lock_source = klib::diag::SourceLocation {

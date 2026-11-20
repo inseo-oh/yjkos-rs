@@ -25,8 +25,8 @@ static MUTEX_OWNER_READY: AtomicUsize = AtomicUsize::new(0);
 static MUTEX_CONTENDER_WAITING: AtomicUsize = AtomicUsize::new(0);
 static MUTEX_CONTENDER_ACQUIRED: AtomicUsize = AtomicUsize::new(0);
 
-struct WorkerContext<'a, HW: Hardware> {
-    kglobals: &'a klib::KGlobals<HW>,
+struct WorkerContext<HW: Hardware> {
+    kglobals: &'static klib::KGlobals<HW>,
     mutex: *const klib::tasks::mutex::Mutex<HW, usize>,
     thread_index: usize,
 }
@@ -105,7 +105,7 @@ fn return_worker(_data: usize) {}
 /// This diagnostic can run only once per boot because the scheduler does not
 /// yet reclaim finished thread stacks.
 pub fn run<HW: Hardware>(
-    kglobals: &klib::KGlobals<HW>,
+    kglobals: &'static klib::KGlobals<HW>,
     duration_secs: u32,
 ) -> Result<(), &'static str> {
     if RUN_STARTED
@@ -128,7 +128,7 @@ pub fn run<HW: Hardware>(
     MUTEX_CONTENDER_ACQUIRED.store(0, Ordering::Relaxed);
 
     let test_mutex = klib::tasks::mutex::Mutex::<HW, usize>::new(0);
-    let contexts: [WorkerContext<'_, HW>; THREAD_COUNT] =
+    let contexts: [WorkerContext<HW>; THREAD_COUNT] =
         core::array::from_fn(|thread_index| WorkerContext {
             kglobals,
             mutex: &test_mutex,
@@ -141,19 +141,25 @@ pub fn run<HW: Hardware>(
         for thread_index in 0..THREAD_COUNT {
             let context = core::ptr::addr_of!(contexts[thread_index]);
             let thread = klib::tasks::thread::Thread::new(
+                kglobals,
                 &scheduler.kernel_process(),
                 klib::tasks::thread::THREAD_STACK_SIZE,
-                stress_worker::<HW>,
-                context as usize,
-            );
+                klib::hal::ThreadStart::Kernel {
+                    entry: stress_worker::<HW>,
+                    data: context as usize,
+                },
+            )?;
             scheduler.queue(thread);
         }
         let returning_thread = klib::tasks::thread::Thread::new(
+            kglobals,
             &scheduler.kernel_process(),
             klib::tasks::thread::THREAD_STACK_SIZE,
-            return_worker,
-            0,
-        );
+            klib::hal::ThreadStart::Kernel {
+                entry: return_worker,
+                data: 0,
+            },
+        )?;
         scheduler.queue(returning_thread);
     }
 

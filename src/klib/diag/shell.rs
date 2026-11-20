@@ -24,7 +24,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for RebootCommand {
         None
     }
 
-    fn execute(&self, arguments: &[String], kglobals: &klib::KGlobals<HW>) {
+    fn execute(&self, _arguments: &[String], _kglobals: &'static klib::KGlobals<HW>) {
         HW::reboot();
     }
 }
@@ -55,7 +55,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
         }
     }
 
-    fn execute(&self, arguments: &[String], kglobals: &klib::KGlobals<HW>) {
+    fn execute(&self, arguments: &[String], kglobals: &'static klib::KGlobals<HW>) {
         let typ = if let Some(a) = arguments.first() {
             a
         } else {
@@ -274,7 +274,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
         }
     }
 
-    fn execute(&self, arguments: &[String], kglobals: &klib::KGlobals<HW>) {
+    fn execute(&self, arguments: &[String], kglobals: &'static klib::KGlobals<HW>) {
         if arguments.first().is_some_and(|arg| arg == "thread") {
             if let Err(error) =
                 klib::diag::thread::run(kglobals, klib::diag::thread::DEFAULT_DURATION_SECS)
@@ -289,10 +289,24 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
     }
 }
 
-const USER_MODE_TEST_BASE: usize = 0x8000_0000;
+const USER_MODE_TEST_REGION_START: usize = 0x8000_0000;
 
-fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &klib::KGlobals<HW>) {
-    let user_pages = match kglobals.pmm.lock().malloc(2) {
+fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>) {
+    let kernel_base = HW::KERNEL_SPACE_BASE_ADDRESS;
+    if USER_MODE_TEST_REGION_START >= kernel_base
+        || kernel_base - USER_MODE_TEST_REGION_START
+            < klib::tasks::thread::THREAD_STACK_SIZE + HW::PAGE_SIZE
+    {
+        println!("[FAIL] Hardware has no usable userspace test region");
+        return;
+    }
+    let user_size = kernel_base - USER_MODE_TEST_REGION_START;
+    let user_address_space = klib::mem::vmm::AddressSpace::<HW>::new(
+        USER_MODE_TEST_REGION_START as *mut u8,
+        user_size,
+        true,
+    );
+    let user_pages = match kglobals.pmm.lock().malloc(1) {
         Ok(pages) => pages,
         Err(error) => {
             println!("[FAIL] Could not allocate user-mode test pages: {}", error);
@@ -300,11 +314,29 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &klib::KGlobals<HW>) {
         }
     };
 
-    let user_base = USER_MODE_TEST_BASE as *mut u8;
+    let code_object = match klib::mem::vmm::map(
+        &user_address_space,
+        user_pages.base,
+        HW::PAGE_SIZE,
+        klib::mem::vmm::MapFlags {
+            read: true,
+            write: false,
+            exec: true,
+            no_cache: false,
+        },
+    ) {
+        Ok(object) => object,
+        Err(error) => {
+            println!("[FAIL] Could not reserve user-mode code page: {}", error);
+            return;
+        }
+    };
+    let code_addr = code_object.borrow().start;
+
     let mapping_result = {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         HW::mmu_map(
-            user_base,
+            code_addr,
             user_pages.base,
             1,
             klib::mem::vmm::MapFlags {
@@ -315,25 +347,13 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &klib::KGlobals<HW>) {
             },
             true,
         )
-        .and_then(|()| {
-            HW::mmu_map(
-                unsafe { user_base.add(HW::PAGE_SIZE) },
-                klib::PhysicalPtr::new(user_pages.base.addr() + HW::PAGE_SIZE),
-                1,
-                klib::mem::vmm::MapFlags {
-                    read: true,
-                    write: true,
-                    exec: false,
-                    no_cache: false,
-                },
-                true,
-            )
-        })
     };
     if let Err(error) = mapping_result {
         println!("[FAIL] Could not map user-mode test pages: {}", error);
         return;
     }
+
+    user_address_space.borrow_mut().snapshot_current();
 
     // CLI is privileged at CPL 3 with IOPL 0, so reaching this byte from
     // user mode must raise #GP. The normal exception handler prints the trap
@@ -344,9 +364,38 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &klib::KGlobals<HW>) {
         unsafe { core::ptr::write_volatile(HW::SCRATCH_MAP_BASE, 0xfa) };
     }
 
-    let user_stack_top = USER_MODE_TEST_BASE + 2 * HW::PAGE_SIZE - 16;
-    println!("Entering ring 3. Expected result: #GP from CLI with CS RPL 3.");
-    unsafe { HW::enter_user_mode(USER_MODE_TEST_BASE, user_stack_top) };
+    // Keep the process alive while the test runs. Its address space owns the
+    // mapped code and stack pages for the userspace test.
+    let user_process = klib::tasks::process::Process::new(user_address_space);
+    let user_thread = match klib::tasks::thread::Thread::new(
+        kglobals,
+        &user_process,
+        klib::tasks::thread::THREAD_STACK_SIZE,
+        klib::hal::ThreadStart::User {
+            entry: code_addr.addr(),
+        },
+    ) {
+        Ok(thread) => thread,
+        Err(error) => {
+            println!("[FAIL] Could not create user-mode test thread: {}", error);
+            return;
+        }
+    };
+
+    println!("Switching to a user process. Expected result: #GP from CLI with CS RPL 3.");
+    // Preserve the caller's interrupt state across dropping the scheduler
+    // mutex and switching stacks. Its IRQ guard is nested inside this one.
+    let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+    let switch = {
+        let mut scheduler = kglobals.sched.lock();
+        scheduler.queue(user_thread);
+        scheduler.prepare_schedule()
+    };
+    if let Some(switch) = switch {
+        switch.switch();
+    } else {
+        println!("[FAIL] Scheduler did not select the user-mode test thread");
+    }
 }
 
 fn commands<HW: klib::hal::Hardware>() -> Vec<Box<dyn Command<HW>>> {
@@ -401,7 +450,7 @@ trait Command<HW: klib::hal::Hardware> {
         arguments: &[String],
         argument_index: usize,
     ) -> Option<Box<dyn Completable>>;
-    fn execute(&self, arguments: &[String], kglobals: &klib::KGlobals<HW>);
+    fn execute(&self, arguments: &[String], kglobals: &'static klib::KGlobals<HW>);
 }
 
 struct CommandNameCompletion<'a, HW: klib::hal::Hardware>(&'a [Box<dyn Command<HW>>]);
@@ -443,14 +492,14 @@ trait Completable {
     }
 }
 
-pub struct Shell<'a, HW: klib::hal::Hardware> {
+pub struct Shell<HW: klib::hal::Hardware> {
     command_buf: String,
     commands: Vec<Box<dyn Command<HW>>>,
-    kglobals: &'a klib::KGlobals<HW>,
+    kglobals: &'static klib::KGlobals<HW>,
 }
 
-impl<'a, HW: klib::hal::Hardware> Shell<'a, HW> {
-    pub fn new(kglobals: &'a klib::KGlobals<HW>) -> Self {
+impl<HW: klib::hal::Hardware> Shell<HW> {
+    pub fn new(kglobals: &'static klib::KGlobals<HW>) -> Self {
         Self {
             command_buf: String::new(),
             commands: commands(),

@@ -21,6 +21,7 @@ pub(crate) fn process_entry_returned() -> ! {
 }
 
 pub struct Process<HW: klib::hal::Hardware> {
+    pub(super) address_space: klib::mem::vmm::AddressSpaceHandle<HW>,
     pub(super) priority: i8,
     queued_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
     ran_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
@@ -29,12 +30,16 @@ pub struct Process<HW: klib::hal::Hardware> {
 pub type ProcessHandle<HW> = Rc<RefCell<Process<HW>>>;
 
 impl<HW: klib::hal::Hardware> Process<HW> {
-    pub fn new() -> ProcessHandle<HW> {
+    pub fn new(address_space: klib::mem::vmm::AddressSpaceHandle<HW>) -> ProcessHandle<HW> {
         Rc::new(RefCell::new(Self {
+            address_space,
             priority: 0,
             queued_threads: Vec::new(),
             ran_threads: Vec::new(),
         }))
+    }
+    pub fn is_user(&self) -> bool {
+        self.address_space.borrow().is_user()
     }
     pub fn priority(&self) -> i8 {
         self.priority

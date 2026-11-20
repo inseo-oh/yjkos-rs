@@ -3,14 +3,29 @@ use core::ptr::null_mut;
 
 use crate::klib;
 
-pub trait Hardware {
+pub trait HardwareAddressSpace {
+    fn snapshot_current(&mut self);
+    fn load(&self);
+}
+
+#[derive(Clone, Copy)]
+pub enum ThreadStart {
+    /// Start a kernel function with its argument in the normal call frame.
+    Kernel { entry: fn(usize), data: usize },
+    /// IRET to a user instruction pointer using the thread's allocated stack.
+    User { entry: usize },
+}
+
+pub trait Hardware: 'static {
     const PAGE_SIZE: usize;
     const KERNEL_SPACE_BASE_ADDRESS: usize;
     const SCRATCH_MAP_BASE: *mut u8;
 
     type TrapFrame;
     type Thread;
+    type AddressSpace: HardwareAddressSpace;
 
+    fn create_address_space(base: *mut u8, page_count: usize) -> Self::AddressSpace;
     fn reboot();
     fn hcf() -> !;
     fn irq_enabled() -> bool;
@@ -37,9 +52,9 @@ pub trait Hardware {
     fn stack_trace_for_trap_frame(trap_frame: &Self::TrapFrame);
     fn stack_trace();
     fn thread_create(
+        _init_stack_base: *mut u32,
         init_stack_size: usize,
-        init_main_func: fn(data: usize),
-        init_data: usize,
+        start: ThreadStart,
     ) -> Self::Thread;
     /// # Safety
     /// `entry` and `user_stack` must be valid user-accessible addresses. The
@@ -53,7 +68,11 @@ pub trait Hardware {
     /// interrupt handler may access it at the same time. A later switch may
     /// access a context after control has transferred, even while this call is
     /// suspended.
-    unsafe fn thread_switch(from: *mut Self::Thread, to: *mut Self::Thread);
+    unsafe fn thread_switch(
+        from: *mut Self::Thread,
+        to: *mut Self::Thread,
+        reload_address_space: bool,
+    );
 }
 
 #[cfg(test)]
@@ -63,6 +82,13 @@ pub struct TestHW;
 #[cfg(test)]
 std::thread_local! {
     static TEST_IRQ_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+pub struct TestHWAddressSpace;
+
+impl HardwareAddressSpace for TestHWAddressSpace {
+    fn snapshot_current(&mut self) {}
+    fn load(&self) {}
 }
 
 #[cfg(test)]
@@ -127,13 +153,17 @@ impl Hardware for TestHW {
     fn stack_trace() {}
     fn stack_trace_for_trap_frame(_trap_frame: &Self::TrapFrame) {}
     fn thread_create(
+        _init_stack_base: *mut u32,
         init_stack_size: usize,
-        init_main_func: fn(data: usize),
-        init_data: usize,
+        start: ThreadStart,
     ) -> Self::Thread {
+        let (init_main_func, init_data) = match start {
+            ThreadStart::Kernel { entry, data } => (Some(entry), data),
+            ThreadStart::User { entry } => (None, entry),
+        };
         TestHWThread {
             init_stack_size,
-            init_main_func: Some(init_main_func),
+            init_main_func,
             init_data,
             switch_count: 0,
         }
@@ -142,7 +172,11 @@ impl Hardware for TestHW {
         panic!("TestHW cannot enter user mode");
     }
     fn mmu_scratch_map(_phys_base: klib::PhysicalPtr, _no_cache: bool) {}
-    unsafe fn thread_switch(from: *mut Self::Thread, to: *mut Self::Thread) {
+    unsafe fn thread_switch(
+        from: *mut Self::Thread,
+        to: *mut Self::Thread,
+        _reload_address_space: bool,
+    ) {
         let from = unsafe { from.as_mut().expect("from context must not be null") };
         let to = unsafe { to.as_mut().expect("to context must not be null") };
         from.switch_count += 1;
@@ -150,4 +184,10 @@ impl Hardware for TestHW {
     }
 
     fn reboot() {}
+
+    type AddressSpace = TestHWAddressSpace;
+
+    fn create_address_space(_base: *mut u8, _page_count: usize) -> Self::AddressSpace {
+        TestHWAddressSpace
+    }
 }

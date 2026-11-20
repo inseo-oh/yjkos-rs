@@ -1,8 +1,8 @@
-use crate::klib;
+use crate::klib::{self, hal::HardwareAddressSpace};
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, ptr::null_mut};
 
-pub struct VirtualMemoryManager<HW> {
+pub struct VirtualMemoryManager<HW: klib::hal::Hardware> {
     kernel_address_space: Option<AddressSpaceHandle<HW>>,
 }
 
@@ -398,7 +398,8 @@ pub fn map_unaligned_at<HW: klib::hal::Hardware>(
 }
 
 #[repr(C)]
-pub struct AddressSpace<HW> {
+pub struct AddressSpace<HW: klib::hal::Hardware> {
+    hw_address_space: HW::AddressSpace,
     object_list: Vec<ObjectHandle<HW>>,
     uncommitted_objects: Vec<UncommittedObjectHandle<HW>>,
     is_user: bool,
@@ -412,6 +413,7 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
             .checked_add(size.checked_sub(1).expect("address space size is zero"))
             .expect("address space range overflow");
         let address_space = Rc::new(RefCell::new(AddressSpace {
+            hw_address_space: HW::create_address_space(start, size / HW::PAGE_SIZE),
             object_list: Default::default(),
             uncommitted_objects: Default::default(),
             is_user,
@@ -420,10 +422,18 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
         address_space.borrow_mut().add_object(&object);
         address_space
     }
+    pub fn is_user(&self) -> bool {
+        self.is_user
+    }
+    pub fn snapshot_current(&mut self) {
+        self.hw_address_space.snapshot_current();
+    }
+    pub fn load(&self) {
+        self.hw_address_space.load();
+    }
     pub(in crate::klib) fn objects(&self) -> &[ObjectHandle<HW>] {
         &self.object_list
     }
-
     pub(in crate::klib) fn uncommitted_objects(&self) -> &[UncommittedObjectHandle<HW>] {
         &self.uncommitted_objects
     }
@@ -525,7 +535,7 @@ pub struct MapFlags {
 }
 
 #[repr(C)]
-pub struct Object<HW> {
+pub struct Object<HW: klib::hal::Hardware> {
     pub phys_base: Option<klib::PhysicalPtr>, // None means it allocates pages instead of mapping existing pages.
     pub address_space: AddressSpaceHandle<HW>,
     pub start: *mut u8,
@@ -564,7 +574,7 @@ impl<HW: klib::hal::Hardware> Object<HW> {
     }
 }
 pub type ObjectHandle<HW> = Rc<RefCell<Object<HW>>>;
-fn create_object<HW>(
+fn create_object<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     start: *mut u8,
     size: usize,
@@ -581,7 +591,7 @@ fn create_object<HW>(
 }
 
 #[repr(C)]
-pub(in crate::klib) struct UncommittedObject<HW> {
+pub(in crate::klib) struct UncommittedObject<HW: klib::hal::Hardware> {
     object: ObjectHandle<HW>,
     bitmap: Vec<klib::bitmap::Word>,
 }
@@ -612,7 +622,7 @@ impl<HW: klib::hal::Hardware> UncommittedObject<HW> {
             .is_some()
     }
 }
-fn create_uncommitted_object<HW>(
+fn create_uncommitted_object<HW: klib::hal::Hardware>(
     object: &ObjectHandle<HW>,
     page_count: usize,
 ) -> UncommittedObjectHandle<HW> {

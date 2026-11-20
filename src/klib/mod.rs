@@ -67,13 +67,13 @@ impl<HW: hal::Hardware> Default for KGlobals<HW> {
     }
 }
 
-pub fn kmain<HW: hal::Hardware>(kglobals: &KGlobals<HW>) -> ! {
+pub fn kmain<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) -> ! {
     initialize(kglobals);
     let mut shell = diag::Shell::new(kglobals);
     shell.run()
 }
 
-fn initialize<HW: hal::Hardware>(kglobals: &KGlobals<HW>) {
+fn initialize<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
     println!("Welcome to YJKernel - Copyright (c) 2026 Oh Inseo");
     println!(
         "{}MiB allocatable memory",
@@ -87,7 +87,12 @@ fn initialize<HW: hal::Hardware>(kglobals: &KGlobals<HW>) {
         println!("[ OK ]");
     }
     println!("> Initialize initial process (ignore the 0k stack it says)");
-    kglobals.sched.lock().init_initial_process();
+    let kernel_address_space = kglobals.vmm.lock().kernel_address_space();
+    kglobals
+        .sched
+        .lock()
+        .init_initial_process(kglobals, kernel_address_space)
+        .expect("failed to initialize initial process");
 
     println!(">> DONE");
 }

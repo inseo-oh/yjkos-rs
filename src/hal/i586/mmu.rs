@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::{
     kglobals,
     klib::{self, hal::Hardware},
@@ -429,4 +431,44 @@ pub fn init() {
         (kernel_vm_end() - kernel_vm_start() + 1) / PAGE_SIZE,
     )
     .unwrap();
+}
+
+pub struct AddressSpace {
+    pde_list: Vec<u32>,
+}
+
+impl AddressSpace {
+    pub fn new(base: *mut u8, page_count: usize) -> Self {
+        assert!(klib::miscmath::is_ptr_aligned(
+            base,
+            super::Hardware::PAGE_SIZE
+        ));
+        assert!(page_count > 0, "address space has no pages");
+        let size = page_count
+            .checked_mul(super::Hardware::PAGE_SIZE)
+            .expect("address space size overflow");
+        base.addr()
+            .checked_add(size)
+            .expect("address space range overflow");
+        // Each process has its own lower half page directory entries. Kernel
+        // PDEs are shared and therefore stay untouched during address-space
+        // switches.
+        let mut pde_list = Vec::with_capacity(KERNEL_PDE_START as usize);
+        for pde_off in 0..KERNEL_PDE_START {
+            pde_list.push(read_pde(pde_off));
+        }
+        Self { pde_list }
+    }
+}
+impl klib::hal::HardwareAddressSpace for AddressSpace {
+    fn snapshot_current(&mut self) {
+        for (pde_off, pde) in self.pde_list.iter_mut().enumerate() {
+            *pde = read_pde(pde_off as u32);
+        }
+    }
+    fn load(&self) {
+        for (pde_off, pde) in self.pde_list.iter().enumerate() {
+            write_pde(pde_off as u32, *pde);
+        }
+    }
 }
