@@ -68,12 +68,12 @@ impl<HW: hal::Hardware> Default for KGlobals<HW> {
 }
 
 pub fn kmain<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) -> ! {
-    initialize(kglobals);
+    init(kglobals);
     let mut shell = diag::Shell::new(kglobals);
     shell.run()
 }
 
-fn initialize<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
+fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
     println!("Welcome to YJKernel - Copyright (c) 2026 Oh Inseo");
     println!(
         "{}MiB allocatable memory",

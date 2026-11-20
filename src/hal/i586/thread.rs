@@ -22,7 +22,7 @@ const STACK_ITEM_COUNT: usize = 11;
 const STACK_MIN_SIZE: usize = STACK_ITEM_COUNT * size_of::<u32>();
 const STACK_MAX_PADDING_SIZE: usize = 3 * size_of::<u32>();
 
-fn initialize_saved_registers(stack: &mut [u32], esp: usize) {
+fn init_saved_registers(stack: &mut [u32], esp: usize) {
     stack[esp + STACK_IDX_EDI] = 0;
     stack[esp + STACK_IDX_ESI] = 0;
     stack[esp + STACK_IDX_EBX] = 0;
@@ -45,7 +45,7 @@ struct InitialStackValues {
     restore_with_iret: bool,
 }
 
-fn initialize_stack(
+fn init_stack(
     init_stack_base: *mut u32,
     init_stack_size: usize,
     start: klib::hal::ThreadStart,
@@ -121,7 +121,7 @@ fn initialize_stack(
         "thread stack is too small after alignment padding"
     );
     let esp = stack.len() - values.padding_words - STACK_ITEM_COUNT;
-    initialize_saved_registers(stack, esp);
+    init_saved_registers(stack, esp);
     let saved_esp = unsafe { stack.as_mut_ptr().add(esp) };
     stack[esp + STACK_IDX_IRET_SS] = values.stack_segment;
     stack[esp + STACK_IDX_IRET_ESP] = values.user_esp.unwrap_or(saved_esp as u32);
@@ -157,7 +157,7 @@ pub fn create(
             restore_with_iret: false,
         };
     }
-    initialize_stack(init_stack_base, init_stack_size, start)
+    init_stack(init_stack_base, init_stack_size, start)
 }
 
 pub unsafe fn switch(from: *mut Thread, to: *mut Thread, reload_address_space: bool) {
