@@ -37,14 +37,20 @@ impl Pool {
 }
 type PoolHeader = klib::list::Node<Pool>;
 #[repr(C)]
-struct AllocHeaderData {
+pub(in crate::klib) struct AllocHeaderData {
     block_count: usize,
     pool_p: *mut PoolHeader,
     size: usize,
     heap_data: HeapAlignment,
 }
 impl AllocHeaderData {
-    fn pool(&self) -> &PoolHeader {
+    pub(crate) fn block_count(&self) -> usize {
+        self.block_count
+    }
+    pub(crate) fn size(&self) -> usize {
+        self.size
+    }
+    pub(crate) fn pool(&self) -> &PoolHeader {
         unsafe { self.pool_p.as_ref().unwrap() }
     }
     fn pool_mut(&mut self) -> &mut PoolHeader {
@@ -124,6 +130,10 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
 
     pub(in crate::klib) fn pools(&self) -> impl Iterator<Item = &Pool> {
         self.heap_pool_list.iter()
+    }
+
+    pub(in crate::klib) fn allocs(&self) -> impl Iterator<Item = &AllocHeaderData> {
+        self.alloc_list.iter()
     }
 
     /// # Safety

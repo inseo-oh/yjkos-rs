@@ -1,3 +1,5 @@
+use core::ptr;
+
 use crate::{klib, print, println};
 use alloc::{
     boxed::Box,
@@ -135,6 +137,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             println!("# Heap memory information");
             let heap = kglobals.heap.lock();
             println!();
+            println!("1. Pools");
             println!(
                 "| NO. | TOTAL               | USED                      | PAGE COUNT           |"
             );
@@ -152,6 +155,22 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
                     (pool.used_block_count() * 100) / pool.block_count(),
                     pool.page_count(),
                     (pool.page_count() * HW::PAGE_SIZE) / 1024,
+                );
+            }
+            println!();
+            println!("2. Allocations");
+            println!("| NO. | HEAP NO. | SIZE      | BLOCK COUNT         |");
+            println!("+-----+----------+-----------+---------------------+");
+            for (n, alloc) in heap.allocs().enumerate() {
+                println!(
+                    "| {:3} | {:8} | {:6}KiB | {:7} ({:6}KiB) |",
+                    n,
+                    heap.pools()
+                        .position(|h| ptr::eq(h, &alloc.pool().data))
+                        .expect("no heap contains this allocation"),
+                    alloc.size() / 1024,
+                    alloc.block_count(),
+                    (alloc.block_count() * klib::mem::heap::BLOCK_SIZE) / 1024,
                 );
             }
             println!();
