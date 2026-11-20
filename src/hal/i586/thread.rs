@@ -1,9 +1,9 @@
 use crate::{klib, println};
 use core::slice;
-
 pub struct Thread {
     saved_esp: *mut u32,
     restore_with_iret: bool,
+    esp0_stack: super::gdt::ESP0Stack,
 }
 
 const STACK_IDX_EDI: usize = 0;
@@ -139,6 +139,7 @@ fn init_stack(
     Thread {
         saved_esp,
         restore_with_iret: values.restore_with_iret,
+        esp0_stack: super::gdt::ESP0Stack::new(),
     }
 }
 
@@ -155,6 +156,7 @@ pub fn create(
         return Thread {
             saved_esp: core::ptr::null_mut(),
             restore_with_iret: false,
+            esp0_stack: super::gdt::ESP0Stack::new(),
         };
     }
     init_stack(init_stack_base, init_stack_size, start)
@@ -163,6 +165,7 @@ pub fn create(
 pub unsafe fn switch(from: *mut Thread, to: *mut Thread, reload_address_space: bool) {
     assert!(!from.is_null());
     assert!(!to.is_null());
+    super::gdt::set_esp0(unsafe { &mut (*to).esp0_stack });
     let from_saved_esp = unsafe { core::ptr::addr_of_mut!((*from).saved_esp) };
     let to_saved_esp = unsafe { (*to).saved_esp };
     let restore_with_iret = unsafe { (*to).restore_with_iret };

@@ -100,11 +100,18 @@ impl TaskStateSegment {
     }
 }
 
+const ESP0_STACK_SIZE: usize = 4096;
+
 #[repr(C, align(16))]
-struct ESP0Stack([u8; 4096]);
+pub(super) struct ESP0Stack([u8; ESP0_STACK_SIZE]);
+impl ESP0Stack {
+    pub const fn new() -> Self {
+        Self([0; ESP0_STACK_SIZE])
+    }
+}
 
 static mut TSS: TaskStateSegment = TaskStateSegment::zeroed();
-static mut ESP0_STACK: ESP0Stack = ESP0Stack([0; 4096]);
+static mut ESP0_STACK: ESP0Stack = ESP0Stack::new();
 
 const GDT_FLAG_L: u8 = 1 << 1;
 const GDT_FLAG_DB: u8 = 1 << 2;
@@ -263,6 +270,18 @@ pub(super) fn init() {
         tss_ptr.write(tss);
         let gdt = GlobalDescriptorTable::new(tss_ptr as usize as u32);
         core::ptr::addr_of_mut!(GDT).write(gdt);
+    }
+}
+
+pub(super) fn set_esp0(esp0_stack: &mut ESP0Stack) {
+    let stack_top = unsafe {
+        core::ptr::addr_of_mut!(esp0_stack.0)
+            .cast::<u8>()
+            .add(size_of::<[u8; ESP0_STACK_SIZE]>())
+    };
+    unsafe {
+        let tss_ptr = core::ptr::addr_of_mut!(TSS);
+        (*tss_ptr).esp0 = stack_top as u32;
     }
 }
 
