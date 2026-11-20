@@ -267,7 +267,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
                 Keyword::new("thread", "run the multithreading stress test"),
                 Keyword::new(
                     "usermode",
-                    "test switching between ring 3 processes (ends at the expected general protection fault)",
+                    "test ring 3 syscalls and process switching (ends at the expected general protection fault)",
                 ),
             ])),
             _ => None,
@@ -292,18 +292,84 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
 const USER_MODE_TEST_REGION_START: usize = 0x8000_0000;
 const USER_MODE_TEST_TIMEOUT_TICKS: u32 = 5_000;
 
-fn make_user_mode_test_worker(counter_addr: usize, release_addr: usize) -> [u8; 20] {
-    // mov dword ptr [counter_addr], 1
+fn make_user_mode_test_worker(
+    syscall_vector: u8,
+    output_char: u8,
+    counter_addr: usize,
+    release_addr: usize,
+) -> [u8; 58] {
+    // write_char(output_char)
+    // invalid_syscall() must return SYSCALL_RESULT_BAD_CALL_NUM in EAX
+    // Write 1 to counter_addr on success or 2 on failure.
     // wait:
     //   mov eax, dword ptr [release_addr]
     //   test eax, eax
     //   jz wait
     //   cli
     let mut code = [
-        0xc7, 0x05, 0, 0, 0, 0, 1, 0, 0, 0, 0xa1, 0, 0, 0, 0, 0x85, 0xc0, 0x74, 0xf7, 0xfa,
+        0xb8,
+        0,
+        0,
+        0,
+        0, // mov eax, SYSCALL_WRITE_CHAR
+        0xbb,
+        0,
+        0,
+        0,
+        0, // mov ebx, output_char
+        0xcd,
+        syscall_vector, // int syscall_vector
+        0xb8,
+        0xff,
+        0,
+        0,
+        0, // mov eax, invalid syscall number
+        0xcd,
+        syscall_vector, // int syscall_vector
+        0x3d,
+        1,
+        0,
+        0,
+        0x80, // cmp eax, SYSCALL_RESULT_BAD_CALL_NUM
+        0x75,
+        0x0c, // jne failure marker
+        0xc7,
+        0x05,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0, // mov [counter_addr], 1
+        0xeb,
+        0x0a, // jmp wait
+        0xc7,
+        0x05,
+        0,
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0, // failure: mov [counter_addr], 2
+        0xa1,
+        0,
+        0,
+        0,
+        0, // wait: mov eax, [release_addr]
+        0x85,
+        0xc0, // test eax, eax
+        0x74,
+        0xf7, // jz wait
+        0xfa, // cli
     ];
-    code[2..6].copy_from_slice(&(counter_addr as u32).to_le_bytes());
-    code[11..15].copy_from_slice(&(release_addr as u32).to_le_bytes());
+    code[6..10].copy_from_slice(&(output_char as u32).to_le_bytes());
+    code[28..32].copy_from_slice(&(counter_addr as u32).to_le_bytes());
+    code[40..44].copy_from_slice(&(counter_addr as u32).to_le_bytes());
+    code[49..53].copy_from_slice(&(release_addr as u32).to_le_bytes());
     code
 }
 
@@ -316,20 +382,15 @@ struct UserModeTestProcess<HW: klib::hal::Hardware> {
 
 fn create_user_mode_test_process<HW: klib::hal::Hardware>(
     kglobals: &'static klib::KGlobals<HW>,
+    process_index: usize,
 ) -> Result<UserModeTestProcess<HW>, &'static str> {
     let user_address_space = klib::mem::vmm::AddressSpace::<HW>::new(
         USER_MODE_TEST_REGION_START as *mut u8,
         HW::KERNEL_SPACE_BASE_ADDRESS - USER_MODE_TEST_REGION_START,
         true,
     );
-    let code_pages = match kglobals.pmm.lock().malloc(1) {
-        Ok(pages) => pages,
-        Err(error) => return Err(error),
-    };
-    let data_pages = match kglobals.pmm.lock().malloc(1) {
-        Ok(pages) => pages,
-        Err(error) => return Err(error),
-    };
+    let code_pages = kglobals.pmm.lock().malloc(1)?;
+    let data_pages = kglobals.pmm.lock().malloc(1)?;
 
     // Both processes use the same virtual addresses, backed by distinct
     // physical pages in their private user page tables.
@@ -388,10 +449,15 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
         Ok::<(), &'static str>(())
     })?;
 
-    let worker_code = make_user_mode_test_worker(data_addr.addr(), data_addr.addr() + 4);
-    // The user process writes a progress word then waits for the shell to
-    // release it. CLI is privileged at CPL 3 with IOPL 0, so the released
-    // process must raise #GP. The trap frame should show CS with RPL 3.
+    let worker_code = make_user_mode_test_worker(
+        HW::SYSCALL_TRAP_NUMBER as u8,
+        b'A' + process_index as u8,
+        data_addr.addr(),
+        data_addr.addr() + 4,
+    );
+    // Both syscall calls happen at CPL 3. The invalid call's return code is
+    // checked before the process reports success. After the shell releases it,
+    // CLI should raise #GP, proving execution remained in ring 3.
     {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         HW::mmu_scratch_map(code_pages.base, false);
@@ -435,7 +501,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
 
     let mut user_processes = Vec::new();
     for index in 0..2 {
-        match create_user_mode_test_process(kglobals) {
+        match create_user_mode_test_process(kglobals, index) {
             Ok(process) => user_processes.push(process),
             Err(error) => {
                 println!(
@@ -447,7 +513,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
         }
     }
 
-    println!("Starting two user processes; expecting both to run before #GP from CLI.");
+    println!("Starting two user processes; expect syscall output A/B and #GP from CLI.");
     {
         // Keep interrupts disabled until the owned switch request has taken
         // over the guard, then restore them as soon as this shell thread runs
@@ -479,7 +545,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
     };
     let progress = loop {
         let progress = read_progress();
-        if progress == [1, 1]
+        if progress.iter().all(|value| *value != 0)
             || klib::ticktime::load().wrapping_sub(start_tick) >= USER_MODE_TEST_TIMEOUT_TICKS
         {
             break progress;
@@ -495,7 +561,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
         }
     }
     if progress == [1, 1] {
-        println!("[ OK ] Both user processes ran and were preempted across address-space switches");
+        println!("[ OK ] Both processes ran; syscall return values were correct");
     } else {
         println!(
             "[FAIL] User-process progress was {}/{}",

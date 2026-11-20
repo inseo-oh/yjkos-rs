@@ -1,5 +1,7 @@
 use core::mem::size_of;
 
+use crate::klib::hal::Hardware;
+
 const IDT_FLAG_TYPE_INT32: u8 = 0xe;
 const IDT_FLAG_TYPE_TRAP32: u8 = 0xf;
 const fn idt_flag_dpl(n: u8) -> u8 {
@@ -312,9 +314,15 @@ impl InterruptDescriptorTable {
         }
         // Interrupt handlers ==================================================
         for i in 0..KERNEL_INTERRUPT_HANDLERS.len() {
+            let trap_number = i + KERNEL_TRAPS.len();
+            let dpl_flag = if trap_number == super::Hardware::SYSCALL_TRAP_NUMBER {
+                IDT_FLAG_DPL3
+            } else {
+                IDT_FLAG_DPL0
+            };
             idt[i + KERNEL_TRAPS.len()] = GateDescriptor::new(
                 KERNEL_INTERRUPT_HANDLERS[i] as usize as u32,
-                IDT_FLAG_P | IDT_FLAG_TYPE_INT32 | IDT_FLAG_DPL0,
+                IDT_FLAG_P | IDT_FLAG_TYPE_INT32 | dpl_flag,
             );
         }
         Self(idt)

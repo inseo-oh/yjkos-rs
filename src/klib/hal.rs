@@ -35,6 +35,7 @@ pub trait Hardware: 'static {
     const PAGE_SIZE: usize;
     const KERNEL_SPACE_BASE_ADDRESS: usize;
     const SCRATCH_MAP_BASE: *mut u8;
+    const SYSCALL_TRAP_NUMBER: usize;
 
     type TrapFrame;
     type Thread;
@@ -88,6 +89,10 @@ pub trait Hardware: 'static {
         to: *mut Self::Thread,
         reload_address_space: bool,
     );
+    fn decode_syscall_args(
+        trap_frame: *mut Self::TrapFrame,
+    ) -> [u32; klib::syscall::SYSCALL_MAX_PARAM_COUNT];
+    fn prepare_syscall_return(result: u32, trap_frame: *mut Self::TrapFrame);
 }
 
 #[cfg(test)]
@@ -123,6 +128,7 @@ impl Hardware for TestHW {
     const PAGE_SIZE: usize = 4096;
     const KERNEL_SPACE_BASE_ADDRESS: usize = 0;
     const SCRATCH_MAP_BASE: *mut u8 = null_mut();
+    const SYSCALL_TRAP_NUMBER: usize = 0;
 
     type TrapFrame = ();
     type Thread = TestHWThread;
@@ -213,4 +219,11 @@ impl Hardware for TestHW {
     ) -> Self::AddressSpace {
         TestHWAddressSpace
     }
+
+    fn decode_syscall_args(
+        trap_frame: *mut Self::TrapFrame,
+    ) -> [u32; klib::syscall::SYSCALL_MAX_PARAM_COUNT] {
+        unimplemented!()
+    }
+    fn prepare_syscall_return(result: u32, trap_frame: *mut Self::TrapFrame) {}
 }

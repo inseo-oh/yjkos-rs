@@ -10,6 +10,7 @@ mod pit;
 mod reboot;
 mod sections;
 mod stacktrace;
+mod syscall;
 mod thread;
 mod traps;
 mod usermode;
@@ -132,6 +133,19 @@ impl klib::hal::Hardware for Hardware {
 
     unsafe fn enter_user_mode(entry: usize, user_stack: usize) -> ! {
         unsafe { usermode::enter_user_mode(entry, user_stack) }
+    }
+
+    // Syscall =================================================================
+
+    const SYSCALL_TRAP_NUMBER: usize = 0xa1;
+
+    fn decode_syscall_args(
+        trap_frame: *mut Self::TrapFrame,
+    ) -> [u32; klib::syscall::SYSCALL_MAX_PARAM_COUNT] {
+        syscall::decode_syscall_args(trap_frame)
+    }
+    fn prepare_syscall_return(result: u32, trap_frame: *mut Self::TrapFrame) {
+        syscall::prepare_syscall_return(result, trap_frame)
     }
 
     // Other stuff =============================================================

@@ -9,6 +9,7 @@ pub mod list;
 pub mod mem;
 pub mod miscmath;
 pub mod physptr;
+pub mod syscall;
 pub mod tasks;
 pub mod ticktime;
 pub mod traps;
@@ -86,6 +87,9 @@ fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
     } else {
         println!("[ OK ]");
     }
+    print!("> Initialize syscall......................................................");
+    syscall::init(&mut kglobals.trap_manager.lock());
+    println!("[DONE]");
     println!("> Initialize initial process");
     let kernel_address_space = kglobals.vmm.lock().kernel_address_space();
     kglobals
