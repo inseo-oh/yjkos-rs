@@ -3,6 +3,7 @@ use core::ptr;
 use crate::{klib, print, println};
 use alloc::{
     boxed::Box,
+    rc::Rc,
     string::{String, ToString},
     vec::Vec,
 };
@@ -180,15 +181,49 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
                 (heap.free_block_count() * klib::mem::heap::BLOCK_SIZE) / 1024
             );
         } else if typ == "scheduler" {
-            println!("# Scheduler queue information");
+            println!("# Scheduler information");
             let sched = kglobals.sched.lock();
             println!();
+            println!("1. Scheduler queues");
             println!("| NO. | PRIORITY | OPPORTUNITIES | THREADS |");
             println!("+-----+----------+---------------+---------+");
             for (n, (priority, opportunities, thread_count)) in sched.queue_stats().enumerate() {
                 println!(
-                    "| {:3} | {:3} | {:3} | {:10} |",
+                    "| {:3} | {:8} | {:3} | {:10} |",
                     n, priority, opportunities, thread_count,
+                );
+            }
+            println!();
+            println!("2. Processes");
+            println!("| NO. | PRIORITY | THREADS |");
+            println!("+-----+----------+---------+");
+            for (n, proc_h) in sched.processes().enumerate() {
+                let proc = proc_h.borrow();
+                println!(
+                    "| {:3} | {:8} | {:7} |",
+                    n,
+                    proc.priority(),
+                    proc.threads().count(),
+                );
+            }
+            println!();
+            println!("3. Threads");
+            println!("| NO. | PROC.NO. | STATE      |");
+            println!("+-----+----------+------------+");
+            for (n, (thr_h, thr_state)) in sched.threads().enumerate() {
+                let thr = thr_h.borrow();
+                println!(
+                    "| {:3} | {:8} | {:10} |",
+                    n,
+                    sched
+                        .processes()
+                        .position(|proc_h| Rc::ptr_eq(&proc_h, &thr.process()))
+                        .expect("thread's process could not be found"),
+                    match thr_state {
+                        klib::tasks::sched::ThreadState::Running => "RUNNING",
+                        klib::tasks::sched::ThreadState::Queued => "QUEUED",
+                        klib::tasks::sched::ThreadState::MutexWait => "MUTEX-WAIT",
+                    },
                 );
             }
             println!();

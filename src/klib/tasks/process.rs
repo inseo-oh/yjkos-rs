@@ -36,6 +36,15 @@ impl<HW: klib::hal::Hardware> Process<HW> {
             ran_threads: Vec::new(),
         }))
     }
+    pub fn priority(&self) -> i8 {
+        self.priority
+    }
+    pub fn threads(&self) -> impl Iterator<Item = klib::tasks::thread::ThreadHandle<HW>> {
+        self.queued_threads
+            .iter()
+            .chain(self.ran_threads.iter())
+            .cloned()
+    }
     pub fn add_thread(&mut self, thr: &klib::tasks::thread::ThreadHandle<HW>) {
         self.queued_threads.push(thr.clone());
     }

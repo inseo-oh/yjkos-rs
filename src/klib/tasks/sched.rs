@@ -70,6 +70,12 @@ pub struct Scheduler<HW: klib::hal::Hardware> {
     kernel_process: Option<klib::tasks::process::ProcessHandle<HW>>,
 }
 
+pub enum ThreadState {
+    Running,
+    Queued,
+    MutexWait,
+}
+
 impl<HW: klib::hal::Hardware> Scheduler<HW> {
     pub const fn new() -> Self {
         Self {
@@ -86,6 +92,64 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             .expect("kernel process not initialized yet")
             .clone()
     }
+
+    pub fn threads(
+        &self,
+    ) -> impl Iterator<Item = (klib::tasks::thread::ThreadHandle<HW>, ThreadState)> {
+        let mut handled_running_thread = false;
+        let mut queue_index = 0;
+        let mut thread_index = 0;
+        let mut mutex_wait_index = 0;
+        core::iter::from_fn(move || {
+            if !handled_running_thread {
+                handled_running_thread = true;
+                if let Some(thread) = &self.running_thread {
+                    return Some((thread.clone(), ThreadState::Running));
+                }
+            }
+
+            loop {
+                if queue_index < self.queues.len() {
+                    let thread = self.queues[queue_index]
+                        .borrow()
+                        .threads
+                        .get(thread_index)
+                        .cloned();
+                    if let Some(thread) = thread {
+                        thread_index += 1;
+                        return Some((thread, ThreadState::Queued));
+                    }
+                    queue_index += 1;
+                    thread_index = 0;
+                    continue;
+                }
+
+                let thread = self.mutex_wait_threads.get(mutex_wait_index)?.clone();
+                mutex_wait_index += 1;
+                return Some((thread, ThreadState::MutexWait));
+            }
+        })
+    }
+
+    pub fn processes(&self) -> impl Iterator<Item = klib::tasks::process::ProcessHandle<HW>> {
+        let mut threads = self.threads();
+        let mut earlier_thread_count = 0;
+        core::iter::from_fn(move || {
+            loop {
+                let (thread, _) = threads.next()?;
+                let process = thread.borrow().process();
+                let already_yielded = self
+                    .threads()
+                    .take(earlier_thread_count)
+                    .any(|(earlier, _)| Rc::ptr_eq(&earlier.borrow().process(), &process));
+                earlier_thread_count += 1;
+                if !already_yielded {
+                    return Some(process);
+                }
+            }
+        })
+    }
+
     pub(in crate::klib) fn queue_stats(&self) -> impl Iterator<Item = (i8, usize, usize)> + '_ {
         self.queues.iter().map(|queue_h| {
             let queue = queue_h.borrow();
