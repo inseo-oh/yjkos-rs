@@ -86,7 +86,7 @@ fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
     } else {
         println!("[ OK ]");
     }
-    println!("> Initialize initial process (ignore the 0k stack it says)");
+    println!("> Initialize initial process");
     let kernel_address_space = kglobals.vmm.lock().kernel_address_space();
     kglobals
         .sched
