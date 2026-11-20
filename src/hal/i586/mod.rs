@@ -27,8 +27,13 @@ fn write_serial(args: core::fmt::Arguments<'_>) -> core::fmt::Result {
     core::fmt::Write::write_fmt(&mut *serial, args)
 }
 fn read_serial() -> char {
-    let serial = SERIAL.lock();
-    serial.read_byte() as char
+    loop {
+        let byte = SERIAL.lock().try_read_byte();
+        if let Some(byte) = byte {
+            return byte as char;
+        }
+        core::hint::spin_loop();
+    }
 }
 
 static SERIAL_WRITER: klib::console::ConsoleWriter = write_serial;

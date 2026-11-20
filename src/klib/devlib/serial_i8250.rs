@@ -104,6 +104,9 @@ impl<HWPIO: klib::devlib::HardwarePortIO> SerialI8250<HWPIO> {
         self.wait_lsr_ready_to_recv();
         self.read_data()
     }
+    pub fn try_read_byte(&self) -> Option<u8> {
+        self.is_ready_to_recv().then(|| self.read_data())
+    }
     fn get_divisor(&self, baudrate: u32) -> Result<u16, &'static str> {
         if baudrate == 0 || !self.master_clock.is_multiple_of(baudrate) {
             return Err("bad baudrate");
