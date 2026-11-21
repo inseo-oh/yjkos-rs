@@ -96,7 +96,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             println!("1. Unallocated virtual memory regions");
             println!("| BASE       | SIZE       | PAGES   |");
             println!("+------------+------------+---------+");
-            for obj_h in kas.objects() {
+            for obj_h in kas.available_objects() {
                 let obj = obj_h.borrow();
                 let base = obj.start.addr();
                 println!(

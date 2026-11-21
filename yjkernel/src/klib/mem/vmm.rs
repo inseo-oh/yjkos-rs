@@ -145,7 +145,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
 
         let uobject = {
             let address_space = address_space.borrow();
-            address_space.find_object_in_uncommitted(ptr.addr())
+            address_space.find_avail_object_in_uncommitted(ptr.addr())
         };
         let uobject: UncommittedObjectHandle<HW> = if let Some(uobject) = uobject {
             uobject
@@ -248,7 +248,7 @@ pub fn alloc_object<HW: klib::hal::Hardware>(
     let uobject = create_uncommitted_object(&new_object, page_count);
     let old_object = address_space
         .borrow_mut()
-        .take_object_with_min_size(page_count)
+        .take_avail_object_with_min_size(page_count)
         .ok_or("out of memory")?;
     new_object.borrow_mut().start = old_object.borrow().start;
     new_object.borrow_mut().size = new_size;
@@ -256,10 +256,13 @@ pub fn alloc_object<HW: klib::hal::Hardware>(
     let shrink_result = old_object.borrow_mut().shrink_at_start(new_size);
     if shrink_result.is_ok() && old_object.borrow().size != 0 {
         // If we can(and resulting size is non-zero), add it back to list (otherwise we drop this object).
-        address_space.borrow_mut().add_object(&old_object);
+        address_space.borrow_mut().add_avail_object(&old_object);
     }
     address_space.borrow_mut().uncommitted_objects.push(uobject);
-
+    address_space
+        .borrow_mut()
+        .allocated_object_list
+        .push(new_object.clone());
     Ok(new_object)
 }
 pub fn alloc_object_at<HW: klib::hal::Hardware>(
@@ -296,7 +299,7 @@ pub fn alloc_object_at<HW: klib::hal::Hardware>(
     let uobject = create_uncommitted_object(&new_object, page_count);
     let l_object = address_space
         .borrow_mut()
-        .take_object_including(virt_base.addr(), end_addr)
+        .take_avail_object_including(virt_base.addr(), end_addr)
         .ok_or("out of memory")?;
     let old_end = l_object.borrow().end_addr();
     let old_start = l_object.borrow().start_addr();
@@ -313,7 +316,7 @@ pub fn alloc_object_at<HW: klib::hal::Hardware>(
             .borrow_mut()
             .set_end(left_end as *mut u8)
             .expect("invalid left split range");
-        address_space.borrow_mut().add_object(&l_object);
+        address_space.borrow_mut().add_avail_object(&l_object);
     }
     if end_addr < old_end {
         let right_start = end_addr
@@ -325,9 +328,13 @@ pub fn alloc_object_at<HW: klib::hal::Hardware>(
             .borrow_mut()
             .set_end(old_end as *mut u8)
             .expect("invalid right split range");
-        address_space.borrow_mut().add_object(&r_object);
+        address_space.borrow_mut().add_avail_object(&r_object);
     }
     address_space.borrow_mut().uncommitted_objects.push(uobject);
+    address_space
+        .borrow_mut()
+        .allocated_object_list
+        .push(new_object.clone());
     Ok(new_object)
 }
 pub fn free<HW: klib::hal::Hardware>(
@@ -340,7 +347,7 @@ pub fn free<HW: klib::hal::Hardware>(
         .borrow()
         .address_space
         .borrow()
-        .find_object_in_uncommitted(object.borrow().start_addr());
+        .find_avail_object_in_uncommitted(object.borrow().start_addr());
     if let Some(uobject) = uobject {
         let pos = object
             .borrow()
@@ -373,12 +380,26 @@ pub fn free<HW: klib::hal::Hardware>(
         }
         ptr = unsafe { ptr.add(HW::PAGE_SIZE) };
     }
-    /* Return object back to the tree */
+    // Return object back to the tree
     object
         .borrow()
         .address_space
         .borrow_mut()
-        .add_object(object);
+        .add_avail_object(object);
+    let remove_pos = object
+        .borrow()
+        .address_space
+        .borrow()
+        .allocated_object_list
+        .iter()
+        .position(|a| Rc::ptr_eq(a, object))
+        .unwrap();
+    object
+        .borrow()
+        .address_space
+        .borrow_mut()
+        .allocated_object_list
+        .remove(remove_pos);
 }
 pub fn alloc_at<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
@@ -445,7 +466,8 @@ pub fn map_unaligned_at<HW: klib::hal::Hardware>(
 #[repr(C)]
 pub struct AddressSpace<HW: klib::hal::Hardware> {
     hw_address_space: Rc<RefCell<HW::AddressSpace>>,
-    object_list: Vec<ObjectHandle<HW>>,
+    available_object_list: Vec<ObjectHandle<HW>>,
+    allocated_object_list: Vec<ObjectHandle<HW>>,
     uncommitted_objects: Vec<UncommittedObjectHandle<HW>>,
     is_user: bool,
 }
@@ -463,12 +485,13 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
                 size / HW::PAGE_SIZE,
                 is_user,
             ))),
-            object_list: Default::default(),
-            uncommitted_objects: Default::default(),
+            available_object_list: Vec::new(),
+            allocated_object_list: Vec::new(),
+            uncommitted_objects: Vec::new(),
             is_user,
         }));
         let object = create_object(&address_space, start, size, None, Default::default());
-        address_space.borrow_mut().add_object(&object);
+        address_space.borrow_mut().add_avail_object(&object);
         address_space
     }
     pub fn is_user(&self) -> bool {
@@ -506,24 +529,27 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
         vmm.lock().user_address_space_override = previous_override;
         result
     }
-    pub(in crate::klib) fn objects(&self) -> &[ObjectHandle<HW>] {
-        &self.object_list
+    pub(in crate::klib) fn available_objects(&self) -> &[ObjectHandle<HW>] {
+        &self.available_object_list
+    }
+    pub(in crate::klib) fn allocated_objects(&self) -> &[ObjectHandle<HW>] {
+        &self.allocated_object_list
     }
     pub(in crate::klib) fn uncommitted_objects(&self) -> &[UncommittedObjectHandle<HW>] {
         &self.uncommitted_objects
     }
-    fn take_object(&mut self, object: &ObjectHandle<HW>) {
+    fn take_avail_object(&mut self, object: &ObjectHandle<HW>) {
         let value_index = self
-            .object_list
+            .available_object_list
             .iter()
             .position(|o| Rc::ptr_eq(o, object))
             .unwrap();
-        self.object_list.remove(value_index);
+        self.available_object_list.remove(value_index);
     }
-    fn take_object_with_min_size(&mut self, page_count: usize) -> Option<ObjectHandle<HW>> {
+    fn take_avail_object_with_min_size(&mut self, page_count: usize) -> Option<ObjectHandle<HW>> {
         assert_ne!(page_count, 0);
         let chosen = self
-            .object_list
+            .available_object_list
             .iter()
             .find(|object_h| {
                 let object = object_h.borrow();
@@ -531,10 +557,10 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
                 page_count <= object_page_count
             })
             .cloned()?;
-        self.take_object(&chosen);
+        self.take_avail_object(&chosen);
         Some(chosen)
     }
-    fn take_object_including(
+    fn take_avail_object_including(
         &mut self,
         start_addr: usize,
         end_addr: usize,
@@ -545,7 +571,7 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
         let rounded_size = page_count.checked_mul(HW::PAGE_SIZE)?;
         let end_addr = start_addr.checked_add(rounded_size.checked_sub(1)?)?;
         let chosen = self
-            .object_list
+            .available_object_list
             .iter()
             .find(|object_h| {
                 let object = object_h.borrow();
@@ -555,10 +581,10 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
                     && (end_addr <= object.end_addr())
             })
             .cloned()?;
-        self.take_object(&chosen);
+        self.take_avail_object(&chosen);
         Some(chosen)
     }
-    fn add_object(&mut self, object: &ObjectHandle<HW>) {
+    fn add_avail_object(&mut self, object: &ObjectHandle<HW>) {
         let (new_start, new_size) = {
             let object = object.borrow();
             (object.start_addr(), object.size)
@@ -573,8 +599,8 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
             .expect("object address range overflow");
 
         // Verify that it doesn't overlap with existing objects, and find sorted position to insert to.
-        let mut insert_pos = self.object_list.len();
-        for (i, object_h) in self.object_list.iter().enumerate() {
+        let mut insert_pos = self.available_object_list.len();
+        for (i, object_h) in self.available_object_list.iter().enumerate() {
             let old_object = object_h.borrow();
             let old_start = old_object.start_addr();
             let old_end = old_object.end_addr();
@@ -582,13 +608,14 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
                 new_end < old_start || old_end < new_start,
                 "address space objects overlap"
             );
-            if insert_pos == self.object_list.len() && new_start < old_start {
+            if insert_pos == self.available_object_list.len() && new_start < old_start {
                 insert_pos = i;
             }
         }
-        self.object_list.insert(insert_pos, object.clone());
+        self.available_object_list
+            .insert(insert_pos, object.clone());
     }
-    fn find_object_in_uncommitted(&self, addr: usize) -> Option<UncommittedObjectHandle<HW>> {
+    fn find_avail_object_in_uncommitted(&self, addr: usize) -> Option<UncommittedObjectHandle<HW>> {
         let page_base = klib::miscmath::align_usize_down(addr, HW::PAGE_SIZE);
         self.uncommitted_objects
             .iter()
@@ -750,18 +777,27 @@ mod tests {
         assert!(allocated.borrow().flags.write);
 
         let address_space = address_space.borrow();
-        assert_eq!(address_space.object_list.len(), 2);
+        assert_eq!(address_space.available_object_list.len(), 2);
         assert_eq!(
-            address_space.object_list[0].borrow().start_addr(),
+            address_space.available_object_list[0].borrow().start_addr(),
             base.addr()
         );
-        assert_eq!(address_space.object_list[0].borrow().size, 2 * PAGE_SIZE);
         assert_eq!(
-            address_space.object_list[1].borrow().start_addr(),
+            address_space.available_object_list[0].borrow().size,
+            2 * PAGE_SIZE
+        );
+        assert_eq!(
+            address_space.available_object_list[1].borrow().start_addr(),
             unsafe { base.add(4 * PAGE_SIZE) }.addr()
         );
-        assert_eq!(address_space.object_list[1].borrow().size, 4 * PAGE_SIZE);
-        assert_eq!(address_space.object_list[1].borrow().phys_base, None);
+        assert_eq!(
+            address_space.available_object_list[1].borrow().size,
+            4 * PAGE_SIZE
+        );
+        assert_eq!(
+            address_space.available_object_list[1].borrow().phys_base,
+            None
+        );
 
         assert_eq!(address_space.uncommitted_objects.len(), 1);
         let mut uobject = address_space.uncommitted_objects[0].borrow_mut();
@@ -791,7 +827,7 @@ mod tests {
 
         assert_eq!(allocated.borrow().start_addr(), base.addr());
         assert_eq!(allocated.borrow().size, 2 * PAGE_SIZE);
-        assert!(address_space.borrow().object_list.is_empty());
+        assert!(address_space.borrow().available_object_list.is_empty());
         assert_eq!(address_space.borrow().uncommitted_objects.len(), 1);
     }
 
@@ -817,9 +853,14 @@ mod tests {
         assert_eq!(allocated.borrow().start_addr(), requested_start.addr());
         assert_eq!(allocated.borrow().size, allocation_pages * PAGE_SIZE);
         let address_space = address_space.borrow();
-        assert_eq!(address_space.object_list.len(), expected_free_ranges.len());
-        for (object, (start_page, page_count)) in
-            address_space.object_list.iter().zip(expected_free_ranges)
+        assert_eq!(
+            address_space.available_object_list.len(),
+            expected_free_ranges.len()
+        );
+        for (object, (start_page, page_count)) in address_space
+            .available_object_list
+            .iter()
+            .zip(expected_free_ranges)
         {
             assert_eq!(
                 object.borrow().start_addr(),
@@ -844,7 +885,7 @@ mod tests {
         let mut memory = TestMemory([0; 8 * PAGE_SIZE]);
         let base = memory.0.as_mut_ptr();
         let address_space = AddressSpace::<klib::hal::TestHW>::new(base, 8 * PAGE_SIZE, false);
-        let original = address_space.borrow().object_list[0].clone();
+        let original = address_space.borrow().available_object_list[0].clone();
 
         assert!(
             alloc_object::<klib::hal::TestHW>(
@@ -867,8 +908,11 @@ mod tests {
         );
 
         let address_space = address_space.borrow();
-        assert_eq!(address_space.object_list.len(), 1);
-        assert!(Rc::ptr_eq(&address_space.object_list[0], &original));
+        assert_eq!(address_space.available_object_list.len(), 1);
+        assert!(Rc::ptr_eq(
+            &address_space.available_object_list[0],
+            &original
+        ));
         assert!(address_space.uncommitted_objects.is_empty());
     }
 
@@ -928,8 +972,8 @@ mod tests {
         let mut memory = TestMemory([0; 8 * PAGE_SIZE]);
         let base = memory.0.as_mut_ptr();
         let address_space = AddressSpace::<klib::hal::TestHW>::new(base, 8 * PAGE_SIZE, false);
-        let original = address_space.borrow().object_list[0].clone();
-        address_space.borrow_mut().take_object(&original);
+        let original = address_space.borrow().available_object_list[0].clone();
+        address_space.borrow_mut().take_avail_object(&original);
 
         let high = create_object(
             &address_space,
@@ -939,17 +983,17 @@ mod tests {
             MapFlags::default(),
         );
         let low = create_object(&address_space, base, PAGE_SIZE, None, MapFlags::default());
-        address_space.borrow_mut().add_object(&high);
-        address_space.borrow_mut().add_object(&low);
+        address_space.borrow_mut().add_avail_object(&high);
+        address_space.borrow_mut().add_avail_object(&low);
 
         let address_space = address_space.borrow();
-        assert_eq!(address_space.object_list.len(), 2);
+        assert_eq!(address_space.available_object_list.len(), 2);
         assert_eq!(
-            address_space.object_list[0].borrow().start_addr(),
+            address_space.available_object_list[0].borrow().start_addr(),
             base.addr()
         );
         assert_eq!(
-            address_space.object_list[1].borrow().start_addr(),
+            address_space.available_object_list[1].borrow().start_addr(),
             unsafe { base.add(4 * PAGE_SIZE) }.addr()
         );
     }
@@ -968,7 +1012,7 @@ mod tests {
             MapFlags::default(),
         );
 
-        address_space.borrow_mut().add_object(&overlapping);
+        address_space.borrow_mut().add_avail_object(&overlapping);
     }
 
     #[test]
@@ -1109,17 +1153,17 @@ mod tests {
         let mut memory = TestMemory([0; 8 * PAGE_SIZE]);
         let base = memory.0.as_mut_ptr();
         let address_space = AddressSpace::<klib::hal::TestHW>::new(base, 2 * PAGE_SIZE, false);
-        let original = address_space.borrow().object_list[0].clone();
+        let original = address_space.borrow().available_object_list[0].clone();
 
         assert!(
             address_space
                 .borrow_mut()
-                .take_object_with_min_size(3)
+                .take_avail_object_with_min_size(3)
                 .is_none()
         );
-        assert_eq!(address_space.borrow().object_list.len(), 1);
+        assert_eq!(address_space.borrow().available_object_list.len(), 1);
         assert!(Rc::ptr_eq(
-            &address_space.borrow().object_list[0],
+            &address_space.borrow().available_object_list[0],
             &original
         ));
     }
@@ -1129,15 +1173,15 @@ mod tests {
         let mut memory = TestMemory([0; 8 * PAGE_SIZE]);
         let base = memory.0.as_mut_ptr();
         let address_space = AddressSpace::<klib::hal::TestHW>::new(base, 4 * PAGE_SIZE, false);
-        let original = address_space.borrow().object_list[0].clone();
+        let original = address_space.borrow().available_object_list[0].clone();
 
         let taken = address_space
             .borrow_mut()
-            .take_object_with_min_size(4)
+            .take_avail_object_with_min_size(4)
             .unwrap();
 
         assert!(Rc::ptr_eq(&taken, &original));
-        assert!(address_space.borrow().object_list.is_empty());
+        assert!(address_space.borrow().available_object_list.is_empty());
     }
 
     #[test]
@@ -1145,22 +1189,22 @@ mod tests {
         let mut memory = TestMemory([0; 8 * PAGE_SIZE]);
         let base = memory.0.as_mut_ptr();
         let address_space = AddressSpace::<klib::hal::TestHW>::new(base, 2 * PAGE_SIZE, false);
-        let original = address_space.borrow().object_list[0].clone();
+        let original = address_space.borrow().available_object_list[0].clone();
 
         assert!(
             address_space
                 .borrow_mut()
-                .take_object_including(base.addr() + PAGE_SIZE, base.addr() + 2 * PAGE_SIZE)
+                .take_avail_object_including(base.addr() + PAGE_SIZE, base.addr() + 2 * PAGE_SIZE)
                 .is_none()
         );
-        assert_eq!(address_space.borrow().object_list.len(), 1);
+        assert_eq!(address_space.borrow().available_object_list.len(), 1);
 
         let taken = address_space
             .borrow_mut()
-            .take_object_including(base.addr() + PAGE_SIZE, base.addr() + 2 * PAGE_SIZE - 1)
+            .take_avail_object_including(base.addr() + PAGE_SIZE, base.addr() + 2 * PAGE_SIZE - 1)
             .unwrap();
         assert!(Rc::ptr_eq(&taken, &original));
-        assert!(address_space.borrow().object_list.is_empty());
+        assert!(address_space.borrow().available_object_list.is_empty());
     }
 
     #[test]
@@ -1233,13 +1277,13 @@ mod tests {
 
         let found = address_space
             .borrow()
-            .find_object_in_uncommitted(base.addr() + PAGE_SIZE + 17)
+            .find_avail_object_in_uncommitted(base.addr() + PAGE_SIZE + 17)
             .unwrap();
         assert!(Rc::ptr_eq(&found, &uncommitted));
         assert!(
             address_space
                 .borrow()
-                .find_object_in_uncommitted(base.addr() + 2 * PAGE_SIZE)
+                .find_avail_object_in_uncommitted(base.addr() + 2 * PAGE_SIZE)
                 .is_none()
         );
     }
@@ -1259,9 +1303,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(object.borrow().size, 2 * PAGE_SIZE);
-        assert_eq!(address_space.borrow().object_list.len(), 1);
+        assert_eq!(address_space.borrow().available_object_list.len(), 1);
         assert_eq!(
-            address_space.borrow().object_list[0].borrow().size,
+            address_space.borrow().available_object_list[0]
+                .borrow()
+                .size,
             6 * PAGE_SIZE
         );
         assert_eq!(address_space.borrow().uncommitted_objects.len(), 1);
@@ -1309,17 +1355,23 @@ mod tests {
 
         let address_space = address_space.borrow();
         assert!(address_space.uncommitted_objects.is_empty());
-        assert_eq!(address_space.object_list.len(), 2);
+        assert_eq!(address_space.available_object_list.len(), 2);
         assert_eq!(
-            address_space.object_list[0].borrow().start_addr(),
+            address_space.available_object_list[0].borrow().start_addr(),
             base.addr()
         );
-        assert_eq!(address_space.object_list[0].borrow().size, 2 * PAGE_SIZE);
         assert_eq!(
-            address_space.object_list[1].borrow().start_addr(),
+            address_space.available_object_list[0].borrow().size,
+            2 * PAGE_SIZE
+        );
+        assert_eq!(
+            address_space.available_object_list[1].borrow().start_addr(),
             base.addr() + 2 * PAGE_SIZE
         );
-        assert_eq!(address_space.object_list[1].borrow().size, 2 * PAGE_SIZE);
+        assert_eq!(
+            address_space.available_object_list[1].borrow().size,
+            2 * PAGE_SIZE
+        );
     }
 
     #[test]
@@ -1359,7 +1411,7 @@ mod tests {
         assert!(
             address_space
                 .borrow()
-                .find_object_in_uncommitted(virt_base.addr())
+                .find_avail_object_in_uncommitted(virt_base.addr())
                 .is_none()
         );
         assert_eq!(object.borrow().phys_base, Some(phys_base));
@@ -1385,8 +1437,8 @@ mod tests {
         assert!(Rc::ptr_eq(&from_start, &from_end));
         assert!(Rc::ptr_eq(&from_start, &from_accessor));
         let address_space = from_accessor.borrow();
-        assert_eq!(address_space.object_list.len(), 1);
-        let range = address_space.object_list[0].borrow();
+        assert_eq!(address_space.available_object_list.len(), 1);
+        let range = address_space.available_object_list[0].borrow();
         assert_eq!(range.start_addr(), kernel_start);
         assert_eq!(
             range.size,
@@ -1416,7 +1468,7 @@ mod tests {
 
         let address_space = manager.kernel_address_space();
         let address_space = address_space.borrow();
-        assert_eq!(address_space.object_list.len(), 1);
+        assert_eq!(address_space.available_object_list.len(), 1);
         let object = address_space.uncommitted_objects[0].borrow().object.clone();
         let object = object.borrow();
         assert_eq!(

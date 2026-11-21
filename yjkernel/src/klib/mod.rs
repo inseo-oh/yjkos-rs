@@ -96,7 +96,7 @@ fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
         println!("[ OK ]");
     }
     print!("> Initialize syscall......................................................");
-    syscall::init(&mut kglobals.trap_manager.lock());
+    syscall::init(&mut kglobals.trap_manager.lock(), kglobals);
     println!("[DONE]");
     println!("> Initialize initial process");
     let kernel_address_space = kglobals.vmm.lock().kernel_address_space();

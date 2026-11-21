@@ -5,31 +5,59 @@
 #![no_std]
 #![no_main]
 
-const SYSCALL_TRAP_NUMBER: u8 = 0xa1;
-const SYSCALL_WRITE_CHAR: u32 = 0;
+mod syscall;
 
-unsafe fn syscall_write_char(chr: u8) {
-    let mut syscall_number = SYSCALL_WRITE_CHAR;
-    unsafe {
-        core::arch::asm!(
-            "int {vector}",
-            vector = const SYSCALL_TRAP_NUMBER,
-            inlateout("eax") syscall_number,
-            in("ebx") chr as u32,
-            options(nostack),
-        );
+fn write_str(s: &str) {
+    for byte in s.bytes() {
+        syscall::write_char(byte);
     }
-    let _ = syscall_number;
+}
+
+fn report_result(name: &str, result: Result<(), &'static str>) {
+    write_str(name);
+    match result {
+        Ok(()) => write_str(": PASS\n"),
+        Err(message) => {
+            write_str(": FAIL (");
+            write_str(message);
+            write_str(")\n");
+        }
+    }
+}
+
+fn test_vm_alloc_and_free() -> Result<(), &'static str> {
+    write_str("syscall::vm_alloc_object\n");
+    let ptr = syscall::vm_alloc_object(
+        None,
+        4096,
+        syscall::VMMapFlags {
+            read: true,
+            write: true,
+            ..Default::default()
+        },
+    )?;
+
+    if ptr.is_null() {
+        return Err("allocation returned null");
+    }
+
+    // Exercise the permissions requested from the VM allocation syscall.
+    unsafe {
+        ptr.write_volatile(0x5a);
+        if ptr.read_volatile() != 0x5a {
+            let _ = syscall::vm_free_object(ptr);
+            return Err("allocated memory did not retain written byte");
+        }
+    }
+
+    write_str("syscall::vm_free_object\n");
+    syscall::vm_free_object(ptr)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    unsafe {
-        syscall_write_char(b'H');
-        syscall_write_char(b'i');
-        syscall_write_char(b'!');
-        syscall_write_char(b'\n');
-    }
+    write_str("syscall tests\n");
+    report_result("vm_alloc_object + vm_free_object", test_vm_alloc_and_free());
 
     loop {
         core::hint::spin_loop();
