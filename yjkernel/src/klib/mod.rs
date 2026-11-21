@@ -16,6 +16,8 @@ pub mod tasks;
 pub mod ticktime;
 pub mod traps;
 
+use core::mem::forget;
+
 pub use physptr::PhysicalPtr;
 pub use toolbox::{Bitmap, bitmap, list, miscmath};
 
@@ -124,6 +126,8 @@ fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
     .expect("failed to create userspace init thread");
     let mut scheduler = kglobals.sched.lock();
     scheduler.queue(thread.clone());
+    forget(thread);
+    forget(user_process);
 }
 
 fn expand_heap<HW: hal::Hardware>(kglobals: &KGlobals<HW>) -> Result<(), &'static str> {
