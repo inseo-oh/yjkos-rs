@@ -194,7 +194,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
             println!("+-----+----------+---------------+---------+");
             for (n, (priority, opportunities, thread_count)) in sched.queue_stats().enumerate() {
                 println!(
-                    "| {:3} | {:8} | {:3} | {:10} |",
+                    "| {:3} | {:8} | {:13} | {:7} |",
                     n, priority, opportunities, thread_count,
                 );
             }
