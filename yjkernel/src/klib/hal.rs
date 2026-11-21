@@ -63,6 +63,12 @@ pub trait Hardware: 'static {
         user_access: bool,
     ) -> Result<(), &'static str>;
     fn mmu_unmap(base: *mut u8, count: usize) -> Result<(), &'static str>;
+    fn mmu_remap(
+        virt_base: *mut u8,
+        page_count: usize,
+        flags: klib::mem::vmm::MapFlags,
+        user_access: bool,
+    ) -> Result<(), &'static str>;
     fn mmu_flush_tlb_for(ptr: *mut u8);
     fn mmu_scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool);
     fn stack_trace_for_trap_frame(trap_frame: &Self::TrapFrame);
@@ -173,6 +179,14 @@ impl Hardware for TestHW {
     }
     fn mmu_unmap(_base: *mut u8, _count: usize) -> Result<(), &'static str> {
         Ok(())
+    }
+    fn mmu_remap(
+        virt_base: *mut u8,
+        page_count: usize,
+        flags: klib::mem::vmm::MapFlags,
+        user_access: bool,
+    ) -> Result<(), &'static str> {
+        todo!()
     }
     fn mmu_flush_tlb_for(_ptr: *mut u8) {}
     fn stack_trace() {}

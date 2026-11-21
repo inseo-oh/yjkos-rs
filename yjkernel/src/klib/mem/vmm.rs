@@ -1,25 +1,21 @@
-use crate::klib::{self, hal::HardwareAddressSpace};
+use crate::{
+    klib::{self, hal::HardwareAddressSpace},
+    println,
+};
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, ptr::null_mut};
 
 pub struct VirtualMemoryManager<HW: klib::hal::Hardware> {
     kernel_address_space: Option<AddressSpaceHandle<HW>>,
+    user_address_space_override: Option<AddressSpaceHandle<HW>>,
 }
 
 impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
     pub const fn new() -> Self {
         Self {
             kernel_address_space: None,
+            user_address_space_override: None,
         }
-    }
-    fn real_page_fault(&self, trap_frame: &HW::TrapFrame) {
-        // TODO: Port this to Rust: co_printf("attempted to %s on non-present page at %p\n", was_write ? "read" : "write", ptr);
-        HW::stack_trace_for_trap_frame(trap_frame);
-        panic!("fatal memory access fault");
-    }
-    fn page_not_present(&self, trap_frame: &HW::TrapFrame) {
-        // TODO: Port this to Rust: co_printf("attempted to %s on non-present page at %p\n", was_write ? "read" : "write", ptr);
-        VirtualMemoryManager::<HW>::real_page_fault(self, trap_frame);
     }
     pub fn kernel_address_space(&mut self) -> AddressSpaceHandle<HW> {
         let kernel_start = HW::kernel_vm_start_address();
@@ -34,7 +30,11 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
     pub(in crate::klib) fn existing_kernel_address_space(&self) -> Option<AddressSpaceHandle<HW>> {
         self.kernel_address_space.clone()
     }
-    pub fn address_space_of(&mut self, ptr: *mut u8) -> Option<AddressSpaceHandle<HW>> {
+    pub fn address_space_of(
+        &mut self,
+        ptr: *mut u8,
+        sched: &mut klib::tasks::Scheduler<HW>,
+    ) -> Option<AddressSpaceHandle<HW>> {
         if (HW::kernel_vm_start_address() <= ptr.addr())
             && (ptr.addr() <= HW::kernel_vm_end_address())
         {
@@ -42,8 +42,18 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
             return Some(self.kernel_address_space());
         }
         if ptr.addr() < HW::KERNEL_SPACE_BASE_ADDRESS {
-            // Userspace address (TODO)
-            return None;
+            // Userspace address
+            if let Some(a) = &self.user_address_space_override {
+                return Some(a.clone());
+            }
+            return Some(
+                sched
+                    .running_thread()
+                    .borrow()
+                    .process()
+                    .borrow()
+                    .address_space(),
+            );
         }
         // Kernel image, scratch page, etc...
         None
@@ -62,6 +72,18 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
         .expect("failed to ezmap virtual memory");
         addr
     }
+    fn real_page_fault(&self, trap_frame: &HW::TrapFrame) {
+        HW::stack_trace_for_trap_frame(trap_frame);
+        panic!("fatal memory access fault");
+    }
+    fn page_not_present(&self, trap_frame: &HW::TrapFrame, was_write: bool, ptr: *mut u8) {
+        println!(
+            "NON-PRESENT PAGE: attempted to {} on page at {:#010x}",
+            if was_write { "write" } else { "read" },
+            ptr.addr()
+        );
+        VirtualMemoryManager::<HW>::real_page_fault(self, trap_frame);
+    }
     pub fn page_fault(
         &mut self,
         mut alloc_page: impl FnMut(usize) -> Result<klib::mem::pmm::AllocatedPageInfo, &'static str>,
@@ -70,6 +92,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
         was_write: bool,
         was_user: bool,
         trap_frame: &HW::TrapFrame,
+        sched: &mut klib::tasks::Scheduler<HW>,
     ) {
         let page_base = klib::miscmath::align_ptr_down(ptr, HW::PAGE_SIZE);
         // Is it valid address? ================================================
@@ -89,33 +112,42 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
             return;
         }
         if was_present {
-            // TODO: Port this to Rust: co_printf("privilege violation: attempted to %s on page at %p\n", was_write ? "read" : "write", ptr);
+            println!(
+                "ACCESS VIOLATION: attempted to {} on page at {:#010x}",
+                if was_write { "write" } else { "read" },
+                ptr.addr()
+            );
             self.real_page_fault(trap_frame);
             return;
         }
         if page_base.is_null() {
-            // TODO: Port this to Rust: co_printf("nullptr dereference: attempted to %s on page at %p\n", was_write ? "read" : "write", ptr);
+            println!(
+                "NULL DEREFERENCE: attempted to {} on page at {:#010x}",
+                if was_write { "write" } else { "read" },
+                ptr.addr()
+            );
             self.real_page_fault(trap_frame);
             return;
         }
 
         // See if it's an uncommitted object ===================================
-        let address_space = if let Some(address_space) = self.address_space_of(page_base) {
+        let address_space = if let Some(address_space) = self.address_space_of(page_base, sched) {
             address_space
         } else {
             // We don't know what this address is.
-            self.page_not_present(trap_frame);
+            self.page_not_present(trap_frame, was_write, ptr);
             return;
         };
 
-        let uobject: UncommittedObjectHandle<HW> = if let Some(uobject) = address_space
-            .borrow()
-            .find_object_in_uncommitted(ptr.addr())
-        {
+        let uobject = {
+            let address_space = address_space.borrow();
+            address_space.find_object_in_uncommitted(ptr.addr())
+        };
+        let uobject: UncommittedObjectHandle<HW> = if let Some(uobject) = uobject {
             uobject
         } else {
             // Not part of an uncommitted object.
-            self.page_not_present(trap_frame);
+            self.page_not_present(trap_frame, was_write, ptr);
             return;
         };
         let page_index =
@@ -141,6 +173,11 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
             // TODO: Run the OOM killer
             let alloc =
                 alloc_page(page_count).expect("ran out of memory while trying to commit the page");
+            if !HW::SCRATCH_MAP_BASE.is_null() {
+                let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
+                HW::mmu_scratch_map(alloc.base, false);
+                unsafe { core::ptr::write_bytes(HW::SCRATCH_MAP_BASE, 0, HW::PAGE_SIZE) };
+            }
             alloc.base
         };
         HW::mmu_map(
@@ -157,10 +194,14 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
                 .is_user,
         )
         .expect("failed to map allocated memory");
-        if !uobject.borrow_mut().has_uncommitted_pages() {
-            let uobject_v = uobject.borrow_mut();
-            let object = uobject_v.object.borrow_mut();
-            let mut address_space = object.address_space.borrow_mut();
+        let has_uncommitted_pages = uobject.borrow_mut().has_uncommitted_pages();
+        if !has_uncommitted_pages {
+            let owner = {
+                let uobject = uobject.borrow();
+                let object = uobject.object.borrow();
+                object.address_space.clone()
+            };
+            let mut address_space = owner.borrow_mut();
             let pos = address_space
                 .uncommitted_objects
                 .iter()
@@ -399,7 +440,7 @@ pub fn map_unaligned_at<HW: klib::hal::Hardware>(
 
 #[repr(C)]
 pub struct AddressSpace<HW: klib::hal::Hardware> {
-    hw_address_space: HW::AddressSpace,
+    hw_address_space: Rc<RefCell<HW::AddressSpace>>,
     object_list: Vec<ObjectHandle<HW>>,
     uncommitted_objects: Vec<UncommittedObjectHandle<HW>>,
     is_user: bool,
@@ -413,7 +454,11 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
             .checked_add(size.checked_sub(1).expect("address space size is zero"))
             .expect("address space range overflow");
         let address_space = Rc::new(RefCell::new(AddressSpace {
-            hw_address_space: HW::create_address_space(start, size / HW::PAGE_SIZE, is_user),
+            hw_address_space: Rc::new(RefCell::new(HW::create_address_space(
+                start,
+                size / HW::PAGE_SIZE,
+                is_user,
+            ))),
             object_list: Default::default(),
             uncommitted_objects: Default::default(),
             is_user,
@@ -425,18 +470,37 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
     pub fn is_user(&self) -> bool {
         self.is_user
     }
-    pub fn snapshot_current(&mut self) {
-        self.hw_address_space.snapshot_current();
+    pub fn snapshot_current(&self) {
+        self.hw_address_space.borrow_mut().snapshot_current();
     }
     pub fn load(&self) {
-        self.hw_address_space.load();
+        self.hw_address_space.borrow().load();
     }
     /// Runs an MMU operation with this address space's user PDEs loaded.
     /// The current user PDEs are restored afterward; kernel PDEs are shared
     /// and are never changed by the address-space load.
-    pub fn with_active<T>(&mut self, f: impl FnOnce() -> T) -> T {
+    pub fn with_active<T>(
+        address_space: &AddressSpaceHandle<HW>,
+        vmm: &klib::irq::Mutex<HW, VirtualMemoryManager<HW>>,
+        f: impl FnOnce() -> T,
+    ) -> T {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        self.hw_address_space.with_loaded(f)
+        let previous_override = {
+            let mut vmm = vmm.lock();
+            let previous = vmm.user_address_space_override.clone();
+            vmm.user_address_space_override = address_space
+                .borrow()
+                .is_user()
+                .then(|| address_space.clone());
+            previous
+        };
+        let hw_address_space = {
+            let address_space = address_space.borrow();
+            address_space.hw_address_space.clone()
+        };
+        let result = hw_address_space.borrow_mut().with_loaded(f);
+        vmm.lock().user_address_space_override = previous_override;
+        result
     }
     pub(in crate::klib) fn objects(&self) -> &[ObjectHandle<HW>] {
         &self.object_list
@@ -1273,6 +1337,7 @@ mod tests {
         .unwrap();
         let mut manager = VirtualMemoryManager::<klib::hal::TestHW> {
             kernel_address_space: Some(address_space.clone()),
+            user_address_space_override: None,
         };
         let mut pmm = klib::mem::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
@@ -1283,6 +1348,7 @@ mod tests {
             true,
             false,
             &(),
+            &mut klib::tasks::Scheduler::new(),
         );
 
         assert!(address_space.borrow().uncommitted_objects.is_empty());
@@ -1299,12 +1365,17 @@ mod tests {
     fn kernel_address_space_is_lazily_created_and_reused_for_kernel_addresses() {
         let mut manager = VirtualMemoryManager::<klib::hal::TestHW> {
             kernel_address_space: None,
+            user_address_space_override: None,
         };
         let kernel_start = <klib::hal::TestHW as klib::hal::Hardware>::kernel_vm_start_address();
         let kernel_end = <klib::hal::TestHW as klib::hal::Hardware>::kernel_vm_end_address();
 
-        let from_start = manager.address_space_of(kernel_start as *mut u8).unwrap();
-        let from_end = manager.address_space_of(kernel_end as *mut u8).unwrap();
+        let from_start = manager
+            .address_space_of(kernel_start as *mut u8, &mut klib::tasks::Scheduler::new())
+            .unwrap();
+        let from_end = manager
+            .address_space_of(kernel_end as *mut u8, &mut klib::tasks::Scheduler::new())
+            .unwrap();
         let from_accessor = manager.kernel_address_space();
 
         assert!(Rc::ptr_eq(&from_start, &from_end));
@@ -1320,7 +1391,10 @@ mod tests {
         );
         assert!(
             manager
-                .address_space_of((kernel_end + 1) as *mut u8)
+                .address_space_of(
+                    (kernel_end + 1) as *mut u8,
+                    &mut klib::tasks::Scheduler::new()
+                )
                 .is_none()
         );
     }
@@ -1329,6 +1403,7 @@ mod tests {
     fn ezmap_returns_the_address_within_its_page_for_unaligned_physical_memory() {
         let mut manager = VirtualMemoryManager::<klib::hal::TestHW> {
             kernel_address_space: None,
+            user_address_space_override: None,
         };
         let phys_base = klib::PhysicalPtr::new(0x12_345);
         let size = 17;
@@ -1381,6 +1456,7 @@ mod tests {
         .unwrap();
         let mut manager = VirtualMemoryManager::<klib::hal::TestHW> {
             kernel_address_space: Some(address_space.clone()),
+            user_address_space_override: None,
         };
         let mut pmm = klib::mem::pmm::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
@@ -1391,6 +1467,7 @@ mod tests {
             false,
             false,
             &(),
+            &mut klib::tasks::Scheduler::new(),
         );
     }
 
@@ -1409,6 +1486,7 @@ mod tests {
         .unwrap();
         let mut manager = VirtualMemoryManager::<klib::hal::TestHW> {
             kernel_address_space: Some(address_space),
+            user_address_space_override: None,
         };
         let mut pmm = klib::mem::pmm::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
@@ -1419,6 +1497,7 @@ mod tests {
             false,
             false,
             &(),
+            &mut klib::tasks::Scheduler::new(),
         );
         manager.page_fault(
             |count| pmm.malloc(count),
@@ -1427,6 +1506,7 @@ mod tests {
             false,
             false,
             &(),
+            &mut klib::tasks::Scheduler::new(),
         );
     }
 
@@ -1437,6 +1517,7 @@ mod tests {
         let address_space = AddressSpace::<klib::hal::TestHW>::new(virt_base, PAGE_SIZE, false);
         let mut manager = VirtualMemoryManager::<klib::hal::TestHW> {
             kernel_address_space: Some(address_space),
+            user_address_space_override: None,
         };
         let mut pmm = klib::mem::pmm::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
@@ -1447,6 +1528,7 @@ mod tests {
             false,
             false,
             &(),
+            &mut klib::tasks::Scheduler::new(),
         );
     }
 
@@ -1455,6 +1537,7 @@ mod tests {
     fn null_page_fault_is_fatal() {
         let mut manager = VirtualMemoryManager::<klib::hal::TestHW> {
             kernel_address_space: None,
+            user_address_space_override: None,
         };
         let mut pmm = klib::mem::pmm::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
@@ -1465,6 +1548,7 @@ mod tests {
             false,
             false,
             &(),
+            &mut klib::tasks::Scheduler::new(),
         );
     }
 
@@ -1475,6 +1559,7 @@ mod tests {
         let address_space = AddressSpace::<klib::hal::TestHW>::new(virt_base, 2 * PAGE_SIZE, false);
         let mut manager = VirtualMemoryManager::<klib::hal::TestHW> {
             kernel_address_space: Some(address_space),
+            user_address_space_override: None,
         };
         let mut pmm = klib::mem::PhysicalMemoryManager::<klib::hal::TestHW>::new();
 
@@ -1485,6 +1570,7 @@ mod tests {
             false,
             false,
             &(),
+            &mut klib::tasks::Scheduler::new(),
         );
     }
 }

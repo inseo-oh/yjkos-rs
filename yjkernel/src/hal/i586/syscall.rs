@@ -1,4 +1,4 @@
-use yjkos_rs::klib;
+use crate::klib;
 
 pub fn decode_syscall_args(
     trap_frame: *mut super::traps::TrapFrame,

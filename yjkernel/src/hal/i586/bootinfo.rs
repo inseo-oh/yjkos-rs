@@ -91,6 +91,29 @@ const MULTIBOOT_INFO_APM_TABLE: u32 = 1 << 10;
 const MULTIBOOT_INFO_VBE_INFO: u32 = 1 << 11;
 const MULTIBOOT_INFO_FRAMEBUFFER_INFO: u32 = 1 << 12;
 
+/// # Safety
+/// The address must point to valid, aligned address provided by Multiboot compliant bootloader.
+pub unsafe fn process(
+    mb_info_ptr: klib::PhysicalPtr,
+    pmm: &mut klib::mem::PhysicalMemoryManager<super::Hardware>,
+) {
+    let info = unsafe { mb_info_ptr.read::<super::Hardware, MultibootInfo>(false) };
+    if (info.flags & MULTIBOOT_INFO_MEM_MAP) != 0 {
+        print_mmap(&info);
+        process_mmap(&info, pmm);
+    } else {
+        println!("[warning] no memory map from bootloader - no memory will be registered!");
+    }
+}
+
+//==============================================================================
+// Boot image handling
+//==============================================================================
+
+//==============================================================================
+// Memory region handling
+//==============================================================================
+
 #[derive(Debug, PartialEq, Eq)]
 enum MultibootMemoryType {
     Other,
@@ -112,12 +135,10 @@ impl From<u32> for MultibootMemoryType {
         }
     }
 }
-
 struct MemRegion {
     base: klib::PhysicalPtr,
     len: usize,
 }
-
 enum AddrLimitResult {
     Empty,
     Ignore,
@@ -158,7 +179,6 @@ fn human_readable_len(len: usize) -> (usize, &'static str) {
     }
     (result_len, units[idx])
 }
-
 struct MmapEntry {
     base: klib::PhysicalPtr,
     len: usize,
@@ -246,7 +266,6 @@ impl<'a> Iterator for MmapIter<'a> {
         }
     }
 }
-
 fn print_mmap(info: &MultibootInfo) {
     println!("----------------- Memory map -----------------");
     println!("fromaddr  toaddr   length  type");
@@ -268,7 +287,6 @@ fn print_mmap(info: &MultibootInfo) {
         println!("the system has more memory, but outside of 32-bit address space");
     }
 }
-
 fn exclude_region(
     addr: klib::PhysicalPtr,
     len: usize,
@@ -419,20 +437,5 @@ fn process_mmap(info: &MultibootInfo, pmm: &mut klib::mem::PhysicalMemoryManager
                 println!("[warning] could not register RAM region: {}", e)
             }
         }
-    }
-}
-
-/// # Safety
-/// The address must point to valid, aligned address provided by Multiboot compliant bootloader.
-pub unsafe fn process(
-    mb_info_ptr: klib::PhysicalPtr,
-    pmm: &mut klib::mem::PhysicalMemoryManager<super::Hardware>,
-) {
-    let info = unsafe { mb_info_ptr.read::<super::Hardware, MultibootInfo>(false) };
-    if (info.flags & MULTIBOOT_INFO_MEM_MAP) != 0 {
-        print_mmap(&info);
-        process_mmap(&info, pmm);
-    } else {
-        println!("[warning] no memory map from bootloader - no memory will be registered!");
     }
 }

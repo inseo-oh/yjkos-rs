@@ -24,6 +24,6 @@
     "no-default-libraries": true,
     "position-independent-executables": false,
     "pre-link-args": {
-        "ld.lld": ["--script=i586-yjkos.ld"]
+        "ld.lld": ["--script=support/build/i586-yjkernel.ld"]
     }
 }

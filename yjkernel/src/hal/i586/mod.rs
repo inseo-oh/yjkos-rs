@@ -104,6 +104,14 @@ impl klib::hal::Hardware for Hardware {
     fn mmu_unmap(base: *mut u8, count: usize) -> Result<(), &'static str> {
         mmu::unmap(base, count)
     }
+    fn mmu_remap(
+        virt_base: *mut u8,
+        page_count: usize,
+        flags: klib::mem::vmm::MapFlags,
+        user_access: bool,
+    ) -> Result<(), &'static str> {
+        mmu::remap(virt_base, page_count, flags, user_access)
+    }
     fn mmu_scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) {
         mmu::scratch_map(phys_base, no_cache);
     }

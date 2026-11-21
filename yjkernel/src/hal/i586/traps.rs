@@ -64,6 +64,7 @@ fn page_fault_handler(_trap_num: usize, trap_frame: *mut TrapFrame) {
         (frame.err_code & PF_FLAG_W) != 0,
         (frame.err_code & PF_FLAG_U) != 0,
         frame,
+        &mut globals.sched.lock(),
     );
 }
 

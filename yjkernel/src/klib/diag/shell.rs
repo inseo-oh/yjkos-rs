@@ -1,4 +1,4 @@
-use core::ptr;
+use core::{cell::RefCell, ptr};
 
 use crate::{klib, print, println};
 use alloc::{
@@ -249,8 +249,19 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
     }
 }
 
-struct TestCommand;
-impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
+struct TestCommand<HW: klib::hal::Hardware> {
+    usermode_processes: RefCell<Vec<UserModeTestProcess<HW>>>,
+}
+
+impl<HW: klib::hal::Hardware> TestCommand<HW> {
+    fn new() -> Self {
+        Self {
+            usermode_processes: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl<HW: klib::hal::Hardware> Command<HW> for TestCommand<HW> {
     fn name(&self) -> &'static str {
         "test"
     }
@@ -265,10 +276,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
         match argument_index {
             0 => Some(KeywordParameter::new(&[
                 Keyword::new("thread", "run the multithreading stress test"),
-                Keyword::new(
-                    "usermode",
-                    "load an embedded ring 3 program and test syscalls (ends at the expected general protection fault)",
-                ),
+                Keyword::new("usermode", "load and run the embedded ring 3 ELF program"),
             ])),
             _ => None,
         }
@@ -282,153 +290,33 @@ impl<HW: klib::hal::Hardware> Command<HW> for TestCommand {
                 println!("[FAIL] {}", error);
             }
         } else if arguments.first().is_some_and(|arg| arg == "usermode") {
-            test_user_mode::<HW>(kglobals);
+            test_user_mode::<HW>(kglobals, &self.usermode_processes);
         } else {
             println!("usage: test <thread|usermode>");
         }
     }
 }
 
-const USER_MODE_TEST_REGION_START: usize = 0x8000_0000;
-const USER_MODE_TEST_TIMEOUT_TICKS: u32 = 5_000;
-const USER_PROGRAM_ENTRY_OFFSET: usize = 0;
-
-// Embedded flat user program template. The loader patches the syscall vector,
-// output byte, and absolute data addresses before copying it into user memory.
-const USER_PROGRAM_IMAGE: [u8; 58] = [
-    0xb8, 0, 0, 0, 0, // mov eax, SYSCALL_WRITE_CHAR
-    0xbb, 0, 0, 0, 0, // mov ebx, output_char
-    0xcd, 0, // int syscall_vector
-    0xb8, 0xff, 0, 0, 0, // mov eax, invalid syscall number
-    0xcd, 0, // int syscall_vector
-    0x3d, 1, 0, 0, 0x80, // cmp eax, SYSCALL_RESULT_BAD_CALL_NUM
-    0x75, 0x0c, // jne failure marker
-    0xc7, 0x05, 0, 0, 0, 0, 1, 0, 0, 0, // mov [counter_addr], 1
-    0xeb, 0x0a, // jmp wait
-    0xc7, 0x05, 0, 0, 0, 0, 2, 0, 0, 0, // failure: mov [counter_addr], 2
-    0xa1, 0, 0, 0, 0, // wait: mov eax, [release_addr]
-    0x85, 0xc0, // test eax, eax
-    0x74, 0xf7, // jz wait
-    0xfa, // cli
-];
-
-fn load_embedded_user_program<HW: klib::hal::Hardware>(
-    code_pages: klib::mem::pmm::AllocatedPageInfo,
-    output_char: u8,
-    counter_addr: usize,
-    release_addr: usize,
-) -> Result<usize, &'static str> {
-    if USER_PROGRAM_IMAGE.len() > HW::PAGE_SIZE {
-        return Err("embedded user program does not fit in one page");
-    }
-
-    let mut image = USER_PROGRAM_IMAGE;
-    image[6..10].copy_from_slice(&(output_char as u32).to_le_bytes());
-    image[11] = HW::SYSCALL_TRAP_NUMBER as u8;
-    image[18] = HW::SYSCALL_TRAP_NUMBER as u8;
-    image[28..32].copy_from_slice(&(counter_addr as u32).to_le_bytes());
-    image[40..44].copy_from_slice(&(counter_addr as u32).to_le_bytes());
-    image[49..53].copy_from_slice(&(release_addr as u32).to_le_bytes());
-
-    let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-    HW::mmu_scratch_map(code_pages.base, false);
-    unsafe {
-        core::ptr::write_bytes(HW::SCRATCH_MAP_BASE, 0, HW::PAGE_SIZE);
-        core::ptr::copy_nonoverlapping(image.as_ptr(), HW::SCRATCH_MAP_BASE, image.len());
-    }
-    Ok(USER_PROGRAM_ENTRY_OFFSET)
-}
+static TEST_USER_PROGRAM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../target/latest-yjkos"
+));
 
 struct UserModeTestProcess<HW: klib::hal::Hardware> {
     // Keep the process alive; its threads hold only Weak process references.
     _process: klib::tasks::process::ProcessHandle<HW>,
     thread: klib::tasks::thread::ThreadHandle<HW>,
-    data_page: klib::PhysicalPtr,
 }
 
 fn create_user_mode_test_process<HW: klib::hal::Hardware>(
     kglobals: &'static klib::KGlobals<HW>,
-    process_index: usize,
 ) -> Result<UserModeTestProcess<HW>, &'static str> {
     let user_address_space = klib::mem::vmm::AddressSpace::<HW>::new(
-        USER_MODE_TEST_REGION_START as *mut u8,
-        HW::KERNEL_SPACE_BASE_ADDRESS - USER_MODE_TEST_REGION_START,
+        klib::elf_loader::USER_MODE_BASE as *mut u8,
+        HW::KERNEL_SPACE_BASE_ADDRESS - klib::elf_loader::USER_MODE_BASE,
         true,
     );
-    let code_pages = kglobals.pmm.lock().malloc(1)?;
-    let data_pages = kglobals.pmm.lock().malloc(1)?;
-
-    // Both processes use the same virtual addresses, backed by distinct
-    // physical pages in their private user page tables.
-    let code_addr = USER_MODE_TEST_REGION_START as *mut u8;
-    let data_addr = (USER_MODE_TEST_REGION_START + HW::PAGE_SIZE) as *mut u8;
-    klib::mem::vmm::map_at(
-        &user_address_space,
-        code_addr,
-        code_pages.base,
-        HW::PAGE_SIZE,
-        klib::mem::vmm::MapFlags {
-            read: true,
-            write: false,
-            exec: true,
-            no_cache: false,
-        },
-    )?;
-    klib::mem::vmm::map_at(
-        &user_address_space,
-        data_addr,
-        data_pages.base,
-        HW::PAGE_SIZE,
-        klib::mem::vmm::MapFlags {
-            read: true,
-            write: true,
-            exec: false,
-            no_cache: false,
-        },
-    )?;
-
-    user_address_space.borrow_mut().with_active(|| {
-        HW::mmu_map(
-            code_addr,
-            code_pages.base,
-            1,
-            klib::mem::vmm::MapFlags {
-                read: true,
-                write: false,
-                exec: true,
-                no_cache: false,
-            },
-            true,
-        )?;
-        HW::mmu_map(
-            data_addr,
-            data_pages.base,
-            1,
-            klib::mem::vmm::MapFlags {
-                read: true,
-                write: true,
-                exec: false,
-                no_cache: false,
-            },
-            true,
-        )?;
-        Ok::<(), &'static str>(())
-    })?;
-
-    let entry_offset = load_embedded_user_program::<HW>(
-        code_pages,
-        b'A' + process_index as u8,
-        data_addr.addr(),
-        data_addr.addr() + 4,
-    )?;
-    // Both syscall calls happen at CPL 3. The invalid call's return code is
-    // checked before the process reports success. After the shell releases it,
-    // CLI should raise #GP, proving execution remained in ring 3.
-    {
-        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        HW::mmu_scratch_map(data_pages.base, false);
-        unsafe { core::ptr::write_bytes(HW::SCRATCH_MAP_BASE.cast::<u32>(), 0, 2) };
-    }
+    let entry = klib::elf_loader::load(TEST_USER_PROGRAM, &user_address_space, &kglobals.vmm)?;
 
     // Keep the process alive while its thread is queued. Thread stores only a
     // Weak reference to its owning process.
@@ -437,20 +325,24 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
         kglobals,
         &user_process,
         klib::tasks::thread::THREAD_STACK_SIZE,
-        klib::hal::ThreadStart::User {
-            entry: code_addr.addr() + entry_offset,
-        },
+        klib::hal::ThreadStart::User { entry },
     )?;
     Ok(UserModeTestProcess {
         _process: user_process,
         thread,
-        data_page: data_pages.base,
     })
 }
 
-fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>) {
-    if USER_MODE_TEST_REGION_START >= HW::KERNEL_SPACE_BASE_ADDRESS
-        || HW::KERNEL_SPACE_BASE_ADDRESS - USER_MODE_TEST_REGION_START
+fn test_user_mode<HW: klib::hal::Hardware>(
+    kglobals: &'static klib::KGlobals<HW>,
+    retained_processes: &RefCell<Vec<UserModeTestProcess<HW>>>,
+) {
+    if !retained_processes.borrow().is_empty() {
+        println!("[FAIL] User-mode test processes are already running");
+        return;
+    }
+    if klib::elf_loader::USER_MODE_BASE >= HW::KERNEL_SPACE_BASE_ADDRESS
+        || HW::KERNEL_SPACE_BASE_ADDRESS - klib::elf_loader::USER_MODE_BASE
             < klib::tasks::thread::THREAD_STACK_SIZE + HW::PAGE_SIZE * 2
     {
         println!("[FAIL] Hardware has no usable userspace test region");
@@ -459,7 +351,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
 
     let mut user_processes = Vec::new();
     for index in 0..2 {
-        match create_user_mode_test_process(kglobals, index) {
+        match create_user_mode_test_process(kglobals) {
             Ok(process) => user_processes.push(process),
             Err(error) => {
                 println!(
@@ -471,7 +363,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
         }
     }
 
-    println!("Loading two embedded user programs; expect syscall output A/B and #GP from CLI.");
+    println!("Starting two user ELF processes; expect each to print Hi! and keep running.");
     {
         // Keep interrupts disabled until the owned switch request has taken
         // over the guard, then restore them as soon as this shell thread runs
@@ -492,59 +384,16 @@ fn test_user_mode<HW: klib::hal::Hardware>(kglobals: &'static klib::KGlobals<HW>
         }
     }
 
-    let start_tick = klib::ticktime::load();
-    let read_progress = || {
-        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        core::array::from_fn(|index| {
-            let process = &user_processes[index];
-            HW::mmu_scratch_map(process.data_page, false);
-            unsafe { core::ptr::read_volatile(HW::SCRATCH_MAP_BASE.cast::<u32>()) }
-        })
-    };
-    let progress = loop {
-        let progress = read_progress();
-        if progress.iter().all(|value| *value != 0)
-            || klib::ticktime::load().wrapping_sub(start_tick) >= USER_MODE_TEST_TIMEOUT_TICKS
-        {
-            break progress;
-        }
-        core::hint::spin_loop();
-    };
-
-    {
-        let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        for process in &user_processes {
-            HW::mmu_scratch_map(process.data_page, false);
-            unsafe { core::ptr::write_volatile(HW::SCRATCH_MAP_BASE.cast::<u32>().add(1), 1) };
-        }
-    }
-    if progress == [1, 1] {
-        println!("[ OK ] Both processes ran; syscall return values were correct");
-    } else {
-        println!(
-            "[FAIL] User-process progress was {}/{}",
-            progress[0], progress[1]
-        );
-    }
-
-    // Hand off once more. A released user process reaches CLI, producing the
-    // expected #GP with a ring-3 code selector; that exception halts the test.
-    let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-    let switch = {
-        let mut scheduler = kglobals.sched.lock();
-        scheduler.prepare_schedule()
-    };
-    if let Some(switch) = switch {
-        switch.switch();
-    } else {
-        println!("[FAIL] Scheduler did not resume a user-mode test process");
-    }
+    // The embedded program deliberately spins forever. Keep its process handles
+    // alive because each thread stores only a Weak reference to its process.
+    *retained_processes.borrow_mut() = user_processes;
+    println!("[ OK ] User ELF processes loaded; scheduler returned to the shell");
 }
 
 fn commands<HW: klib::hal::Hardware>() -> Vec<Box<dyn Command<HW>>> {
     let mut commands: Vec<Box<dyn Command<HW>>> = Vec::new();
     commands.push(Box::new(ShowCommand));
-    commands.push(Box::new(TestCommand));
+    commands.push(Box::new(TestCommand::<HW>::new()));
     commands.push(Box::new(RebootCommand));
     commands
 }

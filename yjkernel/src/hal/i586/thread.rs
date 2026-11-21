@@ -1,9 +1,11 @@
 use crate::{klib, println};
+use alloc::boxed::Box;
 use core::slice;
 pub struct Thread {
     saved_esp: *mut u32,
     restore_with_iret: bool,
-    esp0_stack: super::gdt::ESP0Stack,
+    // Keep the 4 KiB privilege-transition stack off the kernel call stack.
+    esp0_stack: Box<super::gdt::ESP0Stack>,
 }
 
 const STACK_IDX_EDI: usize = 0;
@@ -139,7 +141,7 @@ fn init_stack(
     Thread {
         saved_esp,
         restore_with_iret: values.restore_with_iret,
-        esp0_stack: super::gdt::ESP0Stack::new(),
+        esp0_stack: Box::new(super::gdt::ESP0Stack::new()),
     }
 }
 
@@ -156,7 +158,7 @@ pub fn create(
         return Thread {
             saved_esp: core::ptr::null_mut(),
             restore_with_iret: false,
-            esp0_stack: super::gdt::ESP0Stack::new(),
+            esp0_stack: Box::new(super::gdt::ESP0Stack::new()),
         };
     }
     init_stack(init_stack_base, init_stack_size, start)

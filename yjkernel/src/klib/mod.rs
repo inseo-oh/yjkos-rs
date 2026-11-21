@@ -3,6 +3,7 @@ pub mod console;
 mod cstring;
 pub mod devlib;
 pub mod diag;
+pub mod elf_loader;
 pub mod hal;
 pub mod irq;
 pub mod list;
@@ -74,6 +75,11 @@ pub fn kmain<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) -> ! {
     shell.run()
 }
 
+static USERSPACE_INIT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../target/latest-yjkos"
+));
+
 fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
     println!("Welcome to YJKernel - Copyright (c) 2026 Oh Inseo");
     println!(
@@ -98,5 +104,24 @@ fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
         .init_initial_process(kglobals, kernel_address_space)
         .expect("failed to initialize initial process");
 
-    println!(">> DONE");
+    // Launch init process =====================================================
+
+    println!("> Launching YJK/OS");
+    let init_aspace = mem::vmm::AddressSpace::<HW>::new(
+        elf_loader::USER_MODE_BASE as *mut u8,
+        HW::KERNEL_SPACE_BASE_ADDRESS - elf_loader::USER_MODE_BASE,
+        true,
+    );
+    let entry = elf_loader::load(USERSPACE_INIT, &init_aspace, &kglobals.vmm)
+        .expect("invalid userspace init program");
+    let user_process = tasks::process::Process::new(init_aspace);
+    let thread = tasks::thread::Thread::new(
+        kglobals,
+        &user_process,
+        tasks::thread::THREAD_STACK_SIZE,
+        hal::ThreadStart::User { entry },
+    )
+    .expect("failed to create userspace init thread");
+    let mut scheduler = kglobals.sched.lock();
+    scheduler.queue(thread.clone());
 }

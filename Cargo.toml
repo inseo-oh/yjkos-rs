@@ -1,19 +1,11 @@
-[package]
-name = "yjkos-rs"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-
+[workspace]
+members = ["yjkernel", "yjkos"]
+default-members = ["."]
+resolver = "3"
 
 [profile.dev]
 panic = "abort"
+opt-level = 2
 
 [profile.release]
 panic = "abort"
-
-[[bin]]
-name = "yjkos-rs"
-path = "src/main.rs"
-test = false
-bench = false

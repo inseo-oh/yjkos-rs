@@ -45,7 +45,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
     ) -> Result<ThreadHandle<HW>, &'static str> {
         let (address_space, is_user_process) = {
             let process = process.borrow();
-            (process.address_space.clone(), process.is_user())
+            (process.address_space().clone(), process.is_user())
         };
         if is_user_process != matches!(start, klib::hal::ThreadStart::User { .. }) {
             return Err("thread start mode does not match process privilege level");
@@ -65,7 +65,6 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
                     ..Default::default()
                 },
             )?;
-
             if is_user_process {
                 let page_count = klib::miscmath::size_to_blocks(init_stack_size, HW::PAGE_SIZE);
                 let allocation = match kglobals.pmm.lock().malloc(page_count) {
@@ -75,19 +74,23 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
                         return Err(error);
                     }
                 };
-                let mapping_result = address_space.borrow_mut().with_active(|| {
-                    HW::mmu_map(
-                        object.borrow().start,
-                        allocation.base,
-                        page_count,
-                        klib::mem::vmm::MapFlags {
-                            write: true,
-                            read: true,
-                            ..Default::default()
-                        },
-                        true,
-                    )
-                });
+                let mapping_result = klib::mem::vmm::AddressSpace::with_active(
+                    &address_space,
+                    &kglobals.vmm,
+                    || {
+                        HW::mmu_map(
+                            object.borrow().start,
+                            allocation.base,
+                            page_count,
+                            klib::mem::vmm::MapFlags {
+                                write: true,
+                                read: true,
+                                ..Default::default()
+                            },
+                            true,
+                        )
+                    },
+                );
                 if let Err(error) = mapping_result {
                     {
                         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
@@ -102,15 +105,14 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
             }
             Some(object)
         };
-
         let init_stack_base = stack_object
             .as_ref()
             .map(|o| o.borrow().start.cast::<u32>())
             .unwrap_or(ptr::null_mut());
         let arch_thread = if is_user_process {
-            address_space
-                .borrow_mut()
-                .with_active(|| HW::thread_create(init_stack_base, init_stack_size, start))
+            klib::mem::vmm::AddressSpace::with_active(&address_space, &kglobals.vmm, || {
+                HW::thread_create(init_stack_base, init_stack_size, start)
+            })
         } else {
             HW::thread_create(init_stack_base, init_stack_size, start)
         };
@@ -149,10 +151,10 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
             let from_proc = from_proc_h.borrow();
             let to_proc = to_proc_h.borrow();
             let address_spaces_differ =
-                !Rc::ptr_eq(&from_proc.address_space, &to_proc.address_space);
+                !Rc::ptr_eq(&from_proc.address_space(), &to_proc.address_space());
             if address_spaces_differ {
-                from_proc.address_space.borrow_mut().snapshot_current();
-                to_proc.address_space.borrow().load();
+                from_proc.address_space().borrow_mut().snapshot_current();
+                to_proc.address_space().borrow().load();
             }
             address_spaces_differ
         };

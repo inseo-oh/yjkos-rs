@@ -1,7 +1,6 @@
-use core::cell::RefCell;
-
 use crate::klib;
 use alloc::{rc::Rc, vec::Vec};
+use core::cell::RefCell;
 
 struct Queue<HW: klib::hal::Hardware> {
     // Lower value -> Higher priority (similar to UNIX niceness).
@@ -326,7 +325,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         }
         result
     }
-    fn running_thread(&self) -> &klib::tasks::thread::ThreadHandle<HW> {
+    pub fn running_thread(&self) -> &klib::tasks::thread::ThreadHandle<HW> {
         self.running_thread
             .as_ref()
             .expect("there's no running thread")
