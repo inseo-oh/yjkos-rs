@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 use crate::klib;
 use alloc::rc::Rc;
 use alloc::vec::Vec;

@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 #![no_std]
 #![no_main]
 extern crate alloc;

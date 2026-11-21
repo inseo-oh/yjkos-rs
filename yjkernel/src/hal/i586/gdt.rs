@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 use core::mem::{offset_of, size_of};
 
 #[repr(C, align(4))]

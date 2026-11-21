@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 use core::mem::size_of;
 
 use crate::klib::hal::Hardware;

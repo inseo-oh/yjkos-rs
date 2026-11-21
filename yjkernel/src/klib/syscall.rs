@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 use crate::{klib, print};
 
 pub const SYSCALL_MAX_PARAM_COUNT: usize = 7;

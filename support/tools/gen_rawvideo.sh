@@ -1,4 +1,8 @@
 #!/bin/sh
+# Copyright (c) 2026, Oh Inseo
+# SPDX-License-Identifier: BSD-2-Clause
+# See LICENSE for details.
+
 # Generates series of raw video frames into a big binary.
 
 if [ $# -lt 1 ]; then

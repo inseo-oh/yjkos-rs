@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 use crate::{kglobals, klib::hal::Hardware, println};
 
 #[repr(C, align(4))]

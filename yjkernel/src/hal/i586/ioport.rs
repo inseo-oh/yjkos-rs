@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 //! x86 port-mapped I/O primitives.
 
 /// Writes one byte to an I/O port.

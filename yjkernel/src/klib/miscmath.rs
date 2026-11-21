@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 pub const fn is_aligned(x: usize, align: usize) -> bool {
     assert!(align != 0);
     x.is_multiple_of(align)

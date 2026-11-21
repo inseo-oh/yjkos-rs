@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 //! Memory routines required by compiler-generated code for the `no_std` target.
 //! These are NOT meant to be used by normal Rust code directly.
 

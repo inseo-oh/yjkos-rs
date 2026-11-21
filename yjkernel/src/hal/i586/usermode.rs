@@ -1,3 +1,7 @@
+// Copyright (c) 2026, Oh Inseo
+// SPDX-License-Identifier: BSD-2-Clause
+// See LICENSE for details.
+
 use core::arch::asm;
 
 pub unsafe fn enter_user_mode(entry: usize, user_stack: usize) -> ! {
