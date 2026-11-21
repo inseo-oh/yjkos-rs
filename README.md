@@ -1,6 +1,6 @@
 # YJK/OS
 
-Microkernel OS project that started as Rust port of [YJK/OS](https://github.com/inseo-oh/yjk-os).
+Microkernel OS project that started as Rust port of [YJK/OS](https://github.com/inseo-oh/yjkos).
 Currently it's in very early WIP stage.
 
 ## AI disclaimer
