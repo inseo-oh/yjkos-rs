@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See LICENSE for details.
 
-use crate::klib;
+use crate::{bitmap::Bitmap, list, miscmath};
 use core::{
-    marker::{PhantomData, PhantomPinned},
+    marker::PhantomPinned,
     mem::{align_of, offset_of, size_of, size_of_val},
     pin::Pin,
     ptr::NonNull,
@@ -18,52 +18,52 @@ struct HeapAlignment([u8; 0]);
 struct InitialHeapMemory([u8; 1024 * 1024 * 2]);
 
 #[repr(C)]
-pub(in crate::klib) struct Pool {
+pub struct Pool {
     block_pool_p: *mut u8,
-    block_bitmap: klib::Bitmap<'static>,
+    block_bitmap: Bitmap<'static>,
     block_count: usize,
     used_block_count: usize,
     page_count: usize,
     heap_data: HeapAlignment,
 }
 impl Pool {
-    pub(in crate::klib) fn block_count(&self) -> usize {
+    pub fn block_count(&self) -> usize {
         self.block_count
     }
 
-    pub(in crate::klib) fn used_block_count(&self) -> usize {
+    pub fn used_block_count(&self) -> usize {
         self.used_block_count
     }
 
-    pub(in crate::klib) fn page_count(&self) -> usize {
+    pub fn page_count(&self) -> usize {
         self.page_count
     }
 }
-type PoolHeader = klib::list::Node<Pool>;
+type PoolHeader = list::Node<Pool>;
 #[repr(C)]
-pub(in crate::klib) struct AllocHeaderData {
+pub struct AllocHeaderData {
     block_count: usize,
     pool_p: *mut PoolHeader,
     size: usize,
     heap_data: HeapAlignment,
 }
 impl AllocHeaderData {
-    pub(crate) fn block_count(&self) -> usize {
+    pub fn block_count(&self) -> usize {
         self.block_count
     }
-    pub(crate) fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.size
     }
-    pub(crate) fn pool(&self) -> &PoolHeader {
+    pub fn pool(&self) -> &PoolHeader {
         unsafe { self.pool_p.as_ref().unwrap() }
     }
     fn pool_mut(&mut self) -> &mut PoolHeader {
         unsafe { self.pool_p.as_mut().unwrap() }
     }
 }
-type AllocHeader = klib::list::Node<AllocHeaderData>;
+type AllocHeader = list::Node<AllocHeaderData>;
 
-pub(in crate::klib) const BLOCK_SIZE: usize = 64;
+pub const BLOCK_SIZE: usize = 64;
 const POISON_VALUES: [u8; 8] = [0xe9, 0x29, 0xf3, 0xfb, 0xd7, 0x67, 0xaa, 0x5a];
 const ALLOC_HEADER_LOCATOR_SIZE: usize = size_of::<usize>();
 const MIN_ALLOC_ALIGNMENT: usize = align_of::<HeapAlignment>();
@@ -91,7 +91,7 @@ fn actual_alloc_size_for_alignment(size: usize, alignment: usize) -> Option<usiz
 /// # Safety
 /// ptr must point to the same address returned by `malloc` or `malloc_aligned`, and was not freed.
 unsafe fn alloc_header_of(ptr: *mut u8) -> Option<NonNull<AllocHeader>> {
-    if ptr.is_null() || !klib::miscmath::is_aligned(ptr.addr(), MIN_ALLOC_ALIGNMENT) {
+    if ptr.is_null() || !miscmath::is_aligned(ptr.addr(), MIN_ALLOC_ALIGNMENT) {
         return None;
     }
     let header_offset = unsafe {
@@ -100,43 +100,41 @@ unsafe fn alloc_header_of(ptr: *mut u8) -> Option<NonNull<AllocHeader>> {
             .read()
     };
     let header_addr = ptr.addr().checked_sub(header_offset)?;
-    if !klib::miscmath::is_aligned(header_addr, align_of::<AllocHeader>()) {
+    if !miscmath::is_aligned(header_addr, align_of::<AllocHeader>()) {
         return None;
     }
     NonNull::new(header_addr as *mut AllocHeader)
 }
 
-pub struct Heap<HW> {
+pub struct Heap {
     free_block_count: usize,
-    heap_pool_list: klib::UnsafeList<Pool>,
-    alloc_list: klib::UnsafeList<AllocHeaderData>,
+    heap_pool_list: list::UnsafeList<Pool>,
+    alloc_list: list::UnsafeList<AllocHeaderData>,
     initial_heap_memory: InitialHeapMemory,
     initial_heap_initialized: bool,
-    _hw: PhantomData<HW>,
     _pin: PhantomPinned,
 }
-impl<HW: klib::hal::Hardware> Heap<HW> {
+impl Heap {
     pub const fn new() -> Self {
         Self {
             free_block_count: 0,
-            heap_pool_list: klib::UnsafeList::new(),
-            alloc_list: klib::UnsafeList::new(),
+            heap_pool_list: list::UnsafeList::new(),
+            alloc_list: list::UnsafeList::new(),
             initial_heap_memory: InitialHeapMemory([0; 1024 * 1024 * 2]),
             initial_heap_initialized: false,
-            _hw: PhantomData,
             _pin: PhantomPinned,
         }
     }
 
-    pub(in crate::klib) fn free_block_count(&self) -> usize {
+    pub fn free_block_count(&self) -> usize {
         self.free_block_count
     }
 
-    pub(in crate::klib) fn pools(&self) -> impl Iterator<Item = &Pool> {
+    pub fn pools(&self) -> impl Iterator<Item = &Pool> {
         self.heap_pool_list.iter()
     }
 
-    pub(in crate::klib) fn allocs(&self) -> impl Iterator<Item = &AllocHeaderData> {
+    pub fn allocs(&self) -> impl Iterator<Item = &AllocHeaderData> {
         self.alloc_list.iter()
     }
 
@@ -159,7 +157,7 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
             .checked_add(ALLOC_HEADER_LOCATOR_SIZE)?
             .checked_add(alignment - 1)?
             .checked_add(POISON_VALUES.len())?;
-        let block_count = klib::miscmath::size_to_blocks(actual_size, BLOCK_SIZE);
+        let block_count = miscmath::size_to_blocks(actual_size, BLOCK_SIZE);
         let block_index = pool.block_bitmap.find_set_bits(0, block_count)?;
         for i in 0..block_count {
             assert!(pool.block_bitmap.is_bit_set(block_index + i));
@@ -169,12 +167,12 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
             assert!(!pool.block_bitmap.is_bit_set(block_index + i));
         }
         let alloc_off = block_index * BLOCK_SIZE;
-        assert!(klib::miscmath::is_aligned(alloc_off, 16));
+        assert!(miscmath::is_aligned(alloc_off, 16));
         let alloc_p: *mut AllocHeader =
             unsafe { pool.block_pool_p.add(alloc_off) } as *mut AllocHeader;
         pool.used_block_count += block_count;
         unsafe {
-            alloc_p.write(klib::list::Node::new(AllocHeaderData {
+            alloc_p.write(list::Node::new(AllocHeaderData {
                 block_count,
                 pool_p,
                 size,
@@ -226,21 +224,23 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
         self: Pin<&mut Self>,
         mem_p: *mut u8,
         mem_size: usize,
+        page_size: usize,
     ) -> Result<(), &'static str> {
         let heap = unsafe { self.get_unchecked_mut() };
-        assert!(klib::miscmath::is_aligned(
+        assert!(page_size.is_power_of_two());
+        assert!(miscmath::is_aligned(
             mem_p.addr(),
             align_of::<HeapAlignment>()
         ));
-        let max_block_count = klib::miscmath::size_to_blocks(mem_size, BLOCK_SIZE);
-        let mut word_count = klib::bitmap::needed_word_count(max_block_count);
+        let max_block_count = miscmath::size_to_blocks(mem_size, BLOCK_SIZE);
+        let mut word_count = Bitmap::needed_word_count(max_block_count);
         let metadata_size =
-            size_of::<PoolHeader>() + (word_count * size_of::<klib::bitmap::Word>());
+            size_of::<PoolHeader>() + (word_count * size_of::<crate::bitmap::Word>());
         let max_size = metadata_size + (max_block_count * BLOCK_SIZE);
-        let mut page_count = klib::miscmath::size_to_blocks(max_size, HW::PAGE_SIZE);
+        let mut page_count = miscmath::size_to_blocks(max_size, page_size);
 
         // We have to make sure that total size doesn't exceed size of that buffer.
-        while mem_size < page_count * HW::PAGE_SIZE {
+        while mem_size < page_count * page_size {
             if page_count == 0 {
                 return Err("mem_size is too small");
             }
@@ -251,10 +251,9 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
         }
 
         // Now we calculate the actual size ====================================
-        let total_block_count =
-            klib::miscmath::size_to_blocks(page_count * HW::PAGE_SIZE, BLOCK_SIZE);
-        word_count = klib::bitmap::needed_word_count(total_block_count);
-        let mut bitmap_size = word_count * size_of::<klib::bitmap::Word>();
+        let total_block_count = miscmath::size_to_blocks(page_count * page_size, BLOCK_SIZE);
+        word_count = Bitmap::needed_word_count(total_block_count);
+        let mut bitmap_size = word_count * size_of::<crate::bitmap::Word>();
 
         // Don't forget to align! ==============================================
         let align = align_of::<HeapAlignment>();
@@ -274,9 +273,9 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
                 .is_multiple_of(align_of::<HeapAlignment>())
         );
         let pool = unsafe {
-            pool_p.write(klib::list::Node::new(Pool {
+            pool_p.write(list::Node::new(Pool {
                 block_pool_p: pool_data_start,
-                block_bitmap: klib::Bitmap(from_raw_parts_mut(
+                block_bitmap: Bitmap(from_raw_parts_mut(
                     pool_p.byte_add(offset_of!(PoolHeader, data.heap_data)) as *mut u32,
                     word_count,
                 )),
@@ -308,7 +307,7 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
             return None;
         }
         let actual_size = actual_alloc_size_for_alignment(size, alignment)?;
-        let actual_block_count = klib::miscmath::size_to_blocks(actual_size, BLOCK_SIZE);
+        let actual_block_count = miscmath::size_to_blocks(actual_size, BLOCK_SIZE);
         if !self.as_ref().initial_heap_initialized {
             let heap_ptr;
             let heap_size;
@@ -317,7 +316,7 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
                 heap_ptr = heap.initial_heap_memory.0.as_mut_ptr();
                 heap_size = size_of_val(&heap.initial_heap_memory);
             }
-            unsafe { self.as_mut().add_mem(heap_ptr, heap_size).ok()? };
+            unsafe { self.as_mut().add_mem(heap_ptr, heap_size, 4096).ok()? };
             (unsafe { self.as_mut().get_unchecked_mut() }).initial_heap_initialized = true;
         }
         let mut result = None;
@@ -414,35 +413,9 @@ impl<HW: klib::hal::Hardware> Heap<HW> {
         unsafe { self.realloc(ptr, new_size * new_elements) }
     }
 
-    pub fn expand(
-        heap: &klib::irq::Mutex<HW, Self>,
-        pmm: &klib::irq::Mutex<HW, klib::mem::PhysicalMemoryManager<HW>>,
-        vmm: &klib::irq::Mutex<HW, klib::mem::VirtualMemoryManager<HW>>,
-    ) -> Result<(), &'static str> {
-        let heap_size = pmm.lock().get_total_mem_size();
-        let object = {
-            let mut vmm = vmm.lock();
-            klib::mem::vmm::alloc(
-                &vmm.kernel_address_space(),
-                heap_size,
-                klib::mem::vmm::MapFlags {
-                    read: true,
-                    write: true,
-                    ..Default::default()
-                },
-            )?
-        };
-        let (start, size) = {
-            let object = object.borrow();
-            (object.start, object.size)
-        };
-        let mut heap_guard = heap.lock();
-        let mut heap = unsafe { Pin::new_unchecked(&mut *heap_guard) };
-        unsafe { heap.as_mut().add_mem(start, size) }
-    }
 }
 
-impl<HW: klib::hal::Hardware> Default for Heap<HW> {
+impl Default for Heap {
     fn default() -> Self {
         Self::new()
     }
@@ -456,19 +429,18 @@ mod tests {
     #[repr(align(16))]
     struct TestPoolMemory<const N: usize>([u8; N]);
 
-    fn new_heap() -> Pin<alloc::boxed::Box<Heap<klib::hal::TestHW>>> {
-        let mut heap = alloc::boxed::Box::<Heap<klib::hal::TestHW>>::new_uninit();
+    fn new_heap() -> Pin<alloc::boxed::Box<Heap>> {
+        let mut heap = alloc::boxed::Box::<Heap>::new_uninit();
         let p = heap.as_mut_ptr();
         unsafe {
             // We initialize the struct manually, so that we don't attempt to initialize InitialHeapMemory on stack.
             addr_of_mut!((*p).free_block_count).write(0);
-            addr_of_mut!((*p).heap_pool_list).write(klib::UnsafeList::default());
-            addr_of_mut!((*p).alloc_list).write(klib::UnsafeList::default());
+            addr_of_mut!((*p).heap_pool_list).write(list::UnsafeList::default());
+            addr_of_mut!((*p).alloc_list).write(list::UnsafeList::default());
             addr_of_mut!((*p).initial_heap_memory)
                 .cast::<u8>()
                 .write_bytes(0, size_of::<InitialHeapMemory>());
             addr_of_mut!((*p).initial_heap_initialized).write(false);
-            addr_of_mut!((*p)._hw).write(PhantomData);
             addr_of_mut!((*p)._pin).write(PhantomPinned);
             alloc::boxed::Box::into_pin(heap.assume_init())
         }
@@ -529,7 +501,7 @@ mod tests {
         let mut memory = SmallMemory([0; 16]);
         let mut heap = new_heap();
 
-        let result = unsafe { heap.as_mut().add_mem(memory.0.as_mut_ptr(), memory.0.len()) };
+        let result = unsafe { heap.as_mut().add_mem(memory.0.as_mut_ptr(), memory.0.len(), 4096) };
 
         assert_eq!(result, Err("mem_size is too small"));
         assert_eq!(heap.as_ref().free_block_count, 0);
@@ -656,10 +628,10 @@ mod tests {
         let mut large = alloc::boxed::Box::new(TestPoolMemory([0; 64 * 1024]));
         unsafe {
             heap.as_mut()
-                .add_mem(small.0.as_mut_ptr(), size_of_val(&small.0))
+                .add_mem(small.0.as_mut_ptr(), size_of_val(&small.0), 4096)
                 .expect("small test pool should register");
             heap.as_mut()
-                .add_mem(large.0.as_mut_ptr(), size_of_val(&large.0))
+                .add_mem(large.0.as_mut_ptr(), size_of_val(&large.0), 4096)
                 .expect("large test pool should register");
         }
 

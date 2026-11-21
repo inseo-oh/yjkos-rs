@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 elf = { version = "0.8.0", default-features = false }
+toolbox = { path = "../toolbox" }
 
 [[bin]]
 name = "yjkernel"

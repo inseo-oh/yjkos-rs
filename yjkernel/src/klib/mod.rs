@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See LICENSE for details.
 
-pub mod bitmap;
 pub mod console;
 mod cstring;
 pub mod devlib;
@@ -10,18 +9,15 @@ pub mod diag;
 pub mod elf_loader;
 pub mod hal;
 pub mod irq;
-pub mod list;
 pub mod mem;
-pub mod miscmath;
 pub mod physptr;
 pub mod syscall;
 pub mod tasks;
 pub mod ticktime;
 pub mod traps;
 
-pub use bitmap::Bitmap;
-pub use list::UnsafeList;
 pub use physptr::PhysicalPtr;
+pub use toolbox::{Bitmap, bitmap, list, miscmath};
 
 #[macro_export]
 macro_rules! print {
@@ -45,7 +41,7 @@ macro_rules! println {
 
 pub struct KGlobals<HW: hal::Hardware> {
     pub trap_manager: irq::Mutex<HW, traps::TrapManager<HW>>,
-    pub heap: irq::Mutex<HW, mem::Heap<HW>>,
+    pub heap: irq::Mutex<HW, toolbox::Heap>,
     pub pmm: irq::Mutex<HW, mem::PhysicalMemoryManager<HW>>,
     pub vmm: irq::Mutex<HW, mem::VirtualMemoryManager<HW>>,
     pub sched: irq::Mutex<HW, tasks::Scheduler<HW>>,
@@ -59,7 +55,7 @@ impl<HW: hal::Hardware> KGlobals<HW> {
     pub const fn new() -> Self {
         Self {
             trap_manager: irq::Mutex::new(traps::TrapManager::new()),
-            heap: irq::Mutex::new(mem::Heap::new()),
+            heap: irq::Mutex::new(toolbox::Heap::new()),
             pmm: irq::Mutex::new(mem::PhysicalMemoryManager::new()),
             vmm: irq::Mutex::new(mem::VirtualMemoryManager::new()),
             sched: irq::Mutex::new(tasks::Scheduler::new()),
@@ -91,7 +87,7 @@ fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
         kglobals.pmm.lock().get_total_mem_size() / (1024 * 1024)
     );
     print!("> Expanding heap..........................................................");
-    if let Err(e) = mem::Heap::expand(&kglobals.heap, &kglobals.pmm, &kglobals.vmm) {
+    if let Err(e) = expand_heap(kglobals) {
         println!("[FAIL]");
         println!("warning: failed to expand heap: {}", e);
     } else {
@@ -128,4 +124,27 @@ fn init<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) {
     .expect("failed to create userspace init thread");
     let mut scheduler = kglobals.sched.lock();
     scheduler.queue(thread.clone());
+}
+
+fn expand_heap<HW: hal::Hardware>(kglobals: &KGlobals<HW>) -> Result<(), &'static str> {
+    let heap_size = kglobals.pmm.lock().get_total_mem_size();
+    let object = {
+        let mut vmm = kglobals.vmm.lock();
+        mem::vmm::alloc(
+            &vmm.kernel_address_space(),
+            heap_size,
+            mem::vmm::MapFlags {
+                read: true,
+                write: true,
+                ..Default::default()
+            },
+        )?
+    };
+    let (start, size) = {
+        let object = object.borrow();
+        (object.start, object.size)
+    };
+    let mut heap_guard = kglobals.heap.lock();
+    let heap = unsafe { core::pin::Pin::new_unchecked(&mut *heap_guard) };
+    unsafe { heap.add_mem(start, size, HW::PAGE_SIZE) }
 }

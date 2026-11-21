@@ -155,9 +155,9 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
                     "| {:3} | {:7} ({:6}KiB) | {:7} ({:6}KiB, {:3}%) | {:7} ({:7}KiB) |",
                     n,
                     pool.block_count(),
-                    (pool.block_count() * klib::mem::heap::BLOCK_SIZE) / 1024,
+                    (pool.block_count() * toolbox::heap::BLOCK_SIZE) / 1024,
                     pool.used_block_count(),
-                    (pool.used_block_count() * klib::mem::heap::BLOCK_SIZE) / 1024,
+                    (pool.used_block_count() * toolbox::heap::BLOCK_SIZE) / 1024,
                     (pool.used_block_count() * 100) / pool.block_count(),
                     pool.page_count(),
                     (pool.page_count() * HW::PAGE_SIZE) / 1024,
@@ -176,14 +176,14 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
                         .expect("no heap contains this allocation"),
                     alloc.size() / 1024,
                     alloc.block_count(),
-                    (alloc.block_count() * klib::mem::heap::BLOCK_SIZE) / 1024,
+                    (alloc.block_count() * toolbox::heap::BLOCK_SIZE) / 1024,
                 );
             }
             println!();
             println!(
                 "Total free memory is {} blocks ({}KiB)",
                 heap.free_block_count(),
-                (heap.free_block_count() * klib::mem::heap::BLOCK_SIZE) / 1024
+                (heap.free_block_count() * toolbox::heap::BLOCK_SIZE) / 1024
             );
         } else if typ == "scheduler" {
             println!("# Scheduler information");

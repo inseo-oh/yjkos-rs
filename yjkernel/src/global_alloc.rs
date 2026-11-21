@@ -9,7 +9,7 @@ use core::{
     ptr::{NonNull, null_mut},
 };
 
-fn heap_mutex() -> &'static klib::irq::Mutex<hal::Hardware, klib::mem::Heap<hal::Hardware>> {
+fn heap_mutex() -> &'static klib::irq::Mutex<hal::Hardware, toolbox::Heap> {
     &KGLOBALS.heap
 }
 

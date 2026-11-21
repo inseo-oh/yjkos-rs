@@ -1,5 +1,5 @@
 [workspace]
-members = ["yjkernel", "yjkos"]
+members = ["toolbox", "yjkernel", "yjkos"]
 default-members = ["."]
 resolver = "3"
 

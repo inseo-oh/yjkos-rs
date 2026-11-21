@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See LICENSE for details.
 
-use crate::klib;
+use crate::miscmath;
 
 pub type Word = u32;
 const WORD_ALL_ONES: Word = !0;
@@ -54,7 +54,11 @@ fn make_bitmask(offset: usize, len: usize) -> Word {
 }
 
 pub fn needed_word_count(bits: usize) -> usize {
-    klib::miscmath::size_to_blocks(bits, BITS_PER_WORD)
+    miscmath::size_to_blocks(bits, BITS_PER_WORD)
+}
+
+impl<'a> Bitmap<'a> {
+    pub fn needed_word_count(bits: usize) -> usize { needed_word_count(bits) }
 }
 
 pub struct Bitmap<'a>(pub &'a mut [Word]);
