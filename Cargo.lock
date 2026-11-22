@@ -23,3 +23,6 @@ dependencies = [
 [[package]]
 name = "yjkos"
 version = "0.1.0"
+dependencies = [
+ "toolbox",
+]

@@ -3,6 +3,10 @@
 // See LICENSE for details.
 #![no_std]
 
+#[cfg(target_os = "none")]
+#[doc(hidden)]
+pub mod cstring;
+
 #[cfg(test)]
 extern crate alloc;
 

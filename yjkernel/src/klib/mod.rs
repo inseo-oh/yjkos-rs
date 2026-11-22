@@ -16,8 +16,6 @@ pub(in crate::klib) mod diag;
 pub(in crate::klib) mod elf_loader;
 pub(in crate::klib) mod physptr;
 
-mod cstring;
-
 use core::mem::forget;
 
 pub(crate) use physptr::PhysicalPtr;

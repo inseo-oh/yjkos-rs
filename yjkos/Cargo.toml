@@ -8,3 +8,6 @@ name = "yjkos"
 path = "src/main.rs"
 test = false
 bench = false
+
+[dependencies]
+toolbox = { path = "../toolbox" }
