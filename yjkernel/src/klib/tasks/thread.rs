@@ -26,13 +26,13 @@ pub(crate) fn thread_entry_returned() -> ! {
 
 pub(in crate::klib) struct Thread<HW: klib::hal::Hardware> {
     arch_thread: HW::Thread,
-    process: Weak<RefCell<klib::tasks::process::Process<HW>>>,
+    process: Weak<RefCell<klib::tasks::Process<HW>>>,
     pub(super) waiting_mutex: Option<(
         klib::tasks::mutex::RawMutexHandle<HW>,
         klib::diag::SourceLocation,
     )>,
     pub(super) shutdown: bool,
-    pub(in crate::klib) stack_object: Option<klib::mem::vmm::ObjectHandle<HW>>,
+    pub(in crate::klib) stack_object: Option<klib::mem::ObjectHandle<HW>>,
     pub(in crate::klib) kglobals: &'static KGlobals<HW>,
 }
 
@@ -43,7 +43,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
     // This of course applies to any new thread, but the boot thread is exception: It's thread for already running code.
     pub(in crate::klib) fn new(
         kglobals: &'static KGlobals<HW>,
-        process: &klib::tasks::process::ProcessHandle<HW>,
+        process: &klib::tasks::ProcessHandle<HW>,
         init_stack_size: usize,
         start: klib::hal::ThreadStart,
     ) -> Result<ThreadHandle<HW>, &'static str> {
@@ -63,7 +63,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
             let object = klib::mem::vmm::alloc(
                 &address_space,
                 init_stack_size,
-                klib::mem::vmm::MapFlags {
+                klib::mem::MapFlags {
                     write: true,
                     read: true,
                     ..Default::default()
@@ -78,23 +78,20 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
                         return Err(error);
                     }
                 };
-                let mapping_result = klib::mem::vmm::AddressSpace::with_active(
-                    &address_space,
-                    &kglobals.vmm,
-                    || {
+                let mapping_result =
+                    klib::mem::AddressSpace::with_active(&address_space, &kglobals.vmm, || {
                         HW::mmu_map(
                             object.borrow().start,
                             allocation.base,
                             page_count,
-                            klib::mem::vmm::MapFlags {
+                            klib::mem::MapFlags {
                                 write: true,
                                 read: true,
                                 ..Default::default()
                             },
                             true,
                         )
-                    },
-                );
+                    });
                 if let Err(error) = mapping_result {
                     {
                         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
@@ -114,7 +111,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
             .map(|o| o.borrow().start.cast::<u32>())
             .unwrap_or(ptr::null_mut());
         let arch_thread = if is_user_process {
-            klib::mem::vmm::AddressSpace::with_active(&address_space, &kglobals.vmm, || {
+            klib::mem::AddressSpace::with_active(&address_space, &kglobals.vmm, || {
                 HW::thread_create(init_stack_base, init_stack_size, start)
             })
         } else {
@@ -180,7 +177,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
         // switches stacks without touching these heap-resident thread objects.
         unsafe { HW::thread_switch(from_arch, to_arch, reload_address_space) };
     }
-    pub(in crate::klib) fn process(&self) -> klib::tasks::process::ProcessHandle<HW> {
+    pub(in crate::klib) fn process(&self) -> klib::tasks::ProcessHandle<HW> {
         self.process.upgrade().expect("process no longer exists")
     }
 }
@@ -206,9 +203,9 @@ mod tests {
         &TEST_KGLOBALS
     }
 
-    fn test_process() -> klib::tasks::process::ProcessHandle<klib::hal::TestHW> {
-        let address_space = klib::mem::vmm::AddressSpace::new(0x1000 as *mut u8, 16 * 4096, false);
-        klib::tasks::process::Process::new(address_space)
+    fn test_process() -> klib::tasks::ProcessHandle<klib::hal::TestHW> {
+        let address_space = klib::mem::AddressSpace::new(0x1000 as *mut u8, 16 * 4096, false);
+        klib::tasks::Process::new(address_space)
     }
 
     #[test]

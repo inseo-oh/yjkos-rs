@@ -13,4 +13,4 @@ pub mod miscmath;
 
 pub use bitmap::Bitmap;
 pub use heap::Heap;
-pub use list::UnsafeList;
+pub use list::{Node, NodePtr, UnsafeList};

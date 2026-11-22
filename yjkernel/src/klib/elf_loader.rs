@@ -11,7 +11,7 @@ pub(in crate::klib) const USER_MODE_BASE: usize = 0x8000_0000;
 
 pub(in crate::klib) fn load<HW: klib::hal::Hardware>(
     program: &[u8],
-    address_space: &klib::mem::vmm::AddressSpaceHandle<HW>,
+    address_space: &klib::mem::AddressSpaceHandle<HW>,
     vmm: &klib::irq::Mutex<HW, klib::mem::vmm::VirtualMemoryManager<HW>>,
 ) -> Result<usize, &'static str> {
     let file = elf::ElfBytes::<elf::endian::LittleEndian>::minimal_parse(program).map_err(|e| {
@@ -25,7 +25,7 @@ pub(in crate::klib) fn load<HW: klib::hal::Hardware>(
 
     struct AllocRange {
         range: Range<usize>, // Page number
-        flags: klib::mem::vmm::MapFlags,
+        flags: klib::mem::MapFlags,
     }
 
     let mut alloc_page_ranges = Vec::<AllocRange>::new();
@@ -45,7 +45,7 @@ pub(in crate::klib) fn load<HW: klib::hal::Hardware>(
             .ok_or("Invalid ELF executable: p_memsz is too large")?;
         let page_start = start / HW::PAGE_SIZE;
         let page_end = end / HW::PAGE_SIZE + usize::from(end % HW::PAGE_SIZE != 0);
-        let mut flags = klib::mem::vmm::MapFlags::default();
+        let mut flags = klib::mem::MapFlags::default();
         flags.read = (phdr.p_flags & elf::abi::PF_R) != 0;
         flags.write = (phdr.p_flags & elf::abi::PF_W) != 0;
         flags.exec = (phdr.p_flags & elf::abi::PF_X) != 0;
@@ -70,7 +70,7 @@ pub(in crate::klib) fn load<HW: klib::hal::Hardware>(
         let start = pair[0];
         let end = pair[1];
 
-        let mut flags = klib::mem::vmm::MapFlags::default();
+        let mut flags = klib::mem::MapFlags::default();
         let mut covered = false;
 
         for entry in &alloc_page_ranges {
@@ -115,7 +115,7 @@ pub(in crate::klib) fn load<HW: klib::hal::Hardware>(
             address_space,
             address as *mut u8,
             alloc_size,
-            klib::mem::vmm::MapFlags {
+            klib::mem::MapFlags {
                 write: true, // Temporaily force-enable writes
                 ..entry.flags
             },
@@ -124,7 +124,7 @@ pub(in crate::klib) fn load<HW: klib::hal::Hardware>(
     }
 
     let is_user = address_space.borrow().is_user();
-    klib::mem::vmm::AddressSpace::with_active(address_space, vmm, || {
+    klib::mem::AddressSpace::with_active(address_space, vmm, || {
         // Finally, we load segments ===========================================
         for phdr in segments {
             if phdr.p_type != elf::abi::PT_LOAD || phdr.p_memsz == 0 {

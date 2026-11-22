@@ -71,7 +71,7 @@ fn trap_handler<HW: klib::hal::Hardware>(
                     .process()
                     .borrow()
                     .address_space();
-                let flags = klib::mem::vmm::MapFlags {
+                let flags = klib::mem::MapFlags {
                     read: raw_flags & VM_ALLOC_FLAG_READ != 0,
                     write: raw_flags & VM_ALLOC_FLAG_WRITE != 0,
                     exec: raw_flags & VM_ALLOC_FLAG_EXEC != 0,
@@ -114,7 +114,7 @@ fn trap_handler<HW: klib::hal::Hardware>(
                     .process()
                     .borrow()
                     .address_space();
-                let flags = klib::mem::vmm::MapFlags {
+                let flags = klib::mem::MapFlags {
                     read: raw_flags & VM_ALLOC_FLAG_READ != 0,
                     write: raw_flags & VM_ALLOC_FLAG_WRITE != 0,
                     exec: raw_flags & VM_ALLOC_FLAG_EXEC != 0,

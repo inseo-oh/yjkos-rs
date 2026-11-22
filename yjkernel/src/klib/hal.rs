@@ -56,21 +56,21 @@ pub(crate) trait Hardware: 'static {
     fn mmu_virtual_to_physical(virt: *mut u8) -> Result<klib::PhysicalPtr, &'static str>;
     fn mmu_emulate(
         virt: *mut u8,
-        flags: klib::mem::vmm::MapFlags,
+        flags: klib::mem::MapFlags,
         is_from_user: bool,
     ) -> Result<klib::PhysicalPtr, &'static str>;
     fn mmu_map(
         virt_base: *mut u8,
         phys_base: klib::PhysicalPtr,
         page_count: usize,
-        flags: klib::mem::vmm::MapFlags,
+        flags: klib::mem::MapFlags,
         user_access: bool,
     ) -> Result<(), &'static str>;
     fn mmu_unmap(base: *mut u8, count: usize) -> Result<(), &'static str>;
     fn mmu_remap(
         virt_base: *mut u8,
         page_count: usize,
-        flags: klib::mem::vmm::MapFlags,
+        flags: klib::mem::MapFlags,
         user_access: bool,
     ) -> Result<(), &'static str>;
     fn mmu_flush_tlb_for(ptr: *mut u8);
@@ -167,7 +167,7 @@ impl Hardware for TestHW {
     }
     fn mmu_emulate(
         _virt: *mut u8,
-        _flags: klib::mem::vmm::MapFlags,
+        _flags: klib::mem::MapFlags,
         _is_from_user: bool,
     ) -> Result<klib::PhysicalPtr, &'static str> {
         Err("unmapped")
@@ -176,7 +176,7 @@ impl Hardware for TestHW {
         _virt_base: *mut u8,
         _phys_base: klib::PhysicalPtr,
         _page_count: usize,
-        _flags: klib::mem::vmm::MapFlags,
+        _flags: klib::mem::MapFlags,
         _user_access: bool,
     ) -> Result<(), &'static str> {
         Ok(())
@@ -187,7 +187,7 @@ impl Hardware for TestHW {
     fn mmu_remap(
         virt_base: *mut u8,
         page_count: usize,
-        flags: klib::mem::vmm::MapFlags,
+        flags: klib::mem::MapFlags,
         user_access: bool,
     ) -> Result<(), &'static str> {
         todo!()

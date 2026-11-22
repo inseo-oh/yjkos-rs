@@ -27,7 +27,5 @@ pub(in crate::hal) fn reboot() {
     super::HardwarePortIO::out8(KBC_CTRL, KBC_RESET_SYSTEM);
 
     // Halt CPU if it didn't work ==============================================
-    loop {
-        super::Hardware::hcf();
-    }
+    super::Hardware::hcf();
 }

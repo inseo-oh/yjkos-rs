@@ -102,7 +102,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
         // Is it valid address? ================================================
         if HW::mmu_emulate(
             ptr,
-            klib::mem::vmm::MapFlags {
+            klib::mem::MapFlags {
                 read: true,
                 write: was_write,
                 ..Default::default()
@@ -281,7 +281,10 @@ pub(in crate::klib) fn alloc_object_at<HW: klib::hal::Hardware>(
     if let Some(phys_base) = phys_base {
         assert_eq!(phys_base.align_offset(HW::PAGE_SIZE), 0);
     }
-    assert!(toolbox::miscmath::is_aligned(virt_base.addr(), HW::PAGE_SIZE));
+    assert!(toolbox::miscmath::is_aligned(
+        virt_base.addr(),
+        HW::PAGE_SIZE
+    ));
     let end_addr = virt_base
         .addr()
         .checked_add(new_size - 1)
@@ -557,7 +560,8 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
             .iter()
             .find(|object_h| {
                 let object = object_h.borrow();
-                let object_page_count = toolbox::miscmath::size_to_blocks(object.size, HW::PAGE_SIZE);
+                let object_page_count =
+                    toolbox::miscmath::size_to_blocks(object.size, HW::PAGE_SIZE);
                 page_count <= object_page_count
             })
             .cloned()?;

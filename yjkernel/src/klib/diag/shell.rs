@@ -225,9 +225,9 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
                         .position(|proc_h| Rc::ptr_eq(&proc_h, &thr.process()))
                         .expect("thread's process could not be found"),
                     match thr_state {
-                        klib::tasks::sched::ThreadState::Running => "RUNNING",
-                        klib::tasks::sched::ThreadState::Queued => "QUEUED",
-                        klib::tasks::sched::ThreadState::MutexWait => "MUTEX-WAIT",
+                        klib::tasks::ThreadState::Running => "RUNNING",
+                        klib::tasks::ThreadState::Queued => "QUEUED",
+                        klib::tasks::ThreadState::MutexWait => "MUTEX-WAIT",
                     },
                 );
             }
@@ -308,14 +308,14 @@ static TEST_USER_PROGRAM: &[u8] = include_bytes!(concat!(
 
 struct UserModeTestProcess<HW: klib::hal::Hardware> {
     // Keep the process alive; its threads hold only Weak process references.
-    _process: klib::tasks::process::ProcessHandle<HW>,
-    thread: klib::tasks::thread::ThreadHandle<HW>,
+    _process: klib::tasks::ProcessHandle<HW>,
+    thread: klib::tasks::ThreadHandle<HW>,
 }
 
 fn create_user_mode_test_process<HW: klib::hal::Hardware>(
     kglobals: &'static klib::KGlobals<HW>,
 ) -> Result<UserModeTestProcess<HW>, &'static str> {
-    let user_address_space = klib::mem::vmm::AddressSpace::<HW>::new(
+    let user_address_space = klib::mem::AddressSpace::<HW>::new(
         klib::elf_loader::USER_MODE_BASE as *mut u8,
         HW::KERNEL_SPACE_BASE_ADDRESS - klib::elf_loader::USER_MODE_BASE,
         true,
@@ -324,11 +324,11 @@ fn create_user_mode_test_process<HW: klib::hal::Hardware>(
 
     // Keep the process alive while its thread is queued. Thread stores only a
     // Weak reference to its owning process.
-    let user_process = klib::tasks::process::Process::new(user_address_space);
-    let thread = klib::tasks::thread::Thread::new(
+    let user_process = klib::tasks::Process::new(user_address_space);
+    let thread = klib::tasks::Thread::new(
         kglobals,
         &user_process,
-        klib::tasks::thread::THREAD_STACK_SIZE,
+        klib::tasks::THREAD_STACK_SIZE,
         klib::hal::ThreadStart::User { entry },
     )?;
     Ok(UserModeTestProcess {
@@ -347,7 +347,7 @@ fn test_user_mode<HW: klib::hal::Hardware>(
     }
     if klib::elf_loader::USER_MODE_BASE >= HW::KERNEL_SPACE_BASE_ADDRESS
         || HW::KERNEL_SPACE_BASE_ADDRESS - klib::elf_loader::USER_MODE_BASE
-            < klib::tasks::thread::THREAD_STACK_SIZE + HW::PAGE_SIZE * 2
+            < klib::tasks::THREAD_STACK_SIZE + HW::PAGE_SIZE * 2
     {
         println!("[FAIL] Hardware has no usable userspace test region");
         return;

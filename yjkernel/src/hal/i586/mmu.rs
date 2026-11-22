@@ -157,7 +157,7 @@ fn create_pd(pde: u32) -> Result<(), &'static str> {
 fn map_single_page(
     virt: *mut u8,
     phys: klib::PhysicalPtr,
-    flags: klib::mem::vmm::MapFlags,
+    flags: klib::mem::MapFlags,
     user_access: bool,
 ) {
     let pde = pde_index(virt);
@@ -205,7 +205,7 @@ fn check_presence(virt: *mut u8) -> Result<(), &'static str> {
     }
     Ok(())
 }
-fn remap_single_page(virt: *mut u8, flags: klib::mem::vmm::MapFlags, user_access: bool) {
+fn remap_single_page(virt: *mut u8, flags: klib::mem::MapFlags, user_access: bool) {
     let pde = pde_index(virt);
     let pte = pte_index(virt);
     let old_pte = read_pte(pde, pte);
@@ -237,7 +237,7 @@ fn remap_single_page(virt: *mut u8, flags: klib::mem::vmm::MapFlags, user_access
 
 pub(in crate::hal) fn emulate(
     virt: *mut u8,
-    flags: klib::mem::vmm::MapFlags,
+    flags: klib::mem::MapFlags,
     is_from_user: bool,
 ) -> Result<klib::PhysicalPtr, &'static str> {
     let pde = pde_index(virt);
@@ -285,7 +285,7 @@ pub(in crate::hal) fn map(
     virt_base: *mut u8,
     phys_base: klib::PhysicalPtr,
     page_count: usize,
-    flags: klib::mem::vmm::MapFlags,
+    flags: klib::mem::MapFlags,
     user_access: bool,
 ) -> Result<(), &'static str> {
     assert!(!super::Hardware::irq_enabled());
@@ -332,7 +332,7 @@ pub(in crate::hal) fn map(
 pub(in crate::hal) fn remap(
     virt_base: *mut u8,
     page_count: usize,
-    flags: klib::mem::vmm::MapFlags,
+    flags: klib::mem::MapFlags,
     user_access: bool,
 ) -> Result<(), &'static str> {
     assert!(!super::Hardware::irq_enabled());
@@ -397,7 +397,7 @@ pub(in crate::hal) fn write_protect_kernel_text() {
     remap(
         super::sections::kernel_text_start() as *mut u8,
         (super::sections::kernel_text_end() - super::sections::kernel_text_start()) / PAGE_SIZE,
-        klib::mem::vmm::MapFlags {
+        klib::mem::MapFlags {
             read: true,
             ..Default::default()
         },
@@ -411,7 +411,7 @@ pub(in crate::hal) fn write_protect_after_early_init() {
         (super::sections::kernel_ro_after_early_init_end()
             - super::sections::kernel_ro_after_early_init_start())
             / PAGE_SIZE,
-        klib::mem::vmm::MapFlags {
+        klib::mem::MapFlags {
             read: true,
             ..Default::default()
         },

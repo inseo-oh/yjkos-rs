@@ -10,7 +10,7 @@ struct Queue<HW: klib::hal::Hardware> {
     // Lower value -> Higher priority (similar to UNIX niceness).
     priority: i8,
     opportunities: usize,
-    threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    threads: Vec<klib::tasks::ThreadHandle<HW>>,
 }
 type QueueHandle<HW> = Rc<RefCell<Queue<HW>>>;
 
@@ -31,8 +31,8 @@ impl<HW: klib::hal::Hardware> Queue<HW> {
 /// The IRQ guard remains on the outgoing thread's stack across the switch and
 /// is released when that thread resumes.
 pub(crate) struct SwitchRequest<HW: klib::hal::Hardware> {
-    from: klib::tasks::thread::ThreadHandle<HW>,
-    to: klib::tasks::thread::ThreadHandle<HW>,
+    from: klib::tasks::ThreadHandle<HW>,
+    to: klib::tasks::ThreadHandle<HW>,
     _irq_disable: klib::irq::DisableGuard<HW>,
 }
 
@@ -44,7 +44,7 @@ impl<HW: klib::hal::Hardware> SwitchRequest<HW> {
             _irq_disable,
         } = self;
         // Keep `_irq_disable` alive across the context switch. It is dropped only when this thread eventually resumes here.
-        unsafe { klib::tasks::thread::Thread::switch(&from, &to) };
+        unsafe { klib::tasks::Thread::switch(&from, &to) };
         drop(_irq_disable);
     }
 }
@@ -65,9 +65,9 @@ pub(crate) struct Scheduler<HW: klib::hal::Hardware> {
     // priority queues are selected less than higher priority ones.
     queues: Vec<QueueHandle<HW>>,
     current_queue: Option<QueueHandle<HW>>,
-    running_thread: Option<klib::tasks::thread::ThreadHandle<HW>>,
-    mutex_wait_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
-    kernel_process: Option<klib::tasks::process::ProcessHandle<HW>>,
+    running_thread: Option<klib::tasks::ThreadHandle<HW>>,
+    mutex_wait_threads: Vec<klib::tasks::ThreadHandle<HW>>,
+    kernel_process: Option<klib::tasks::ProcessHandle<HW>>,
 }
 
 pub(in crate::klib) enum ThreadState {
@@ -86,7 +86,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             kernel_process: None,
         }
     }
-    pub(in crate::klib) fn kernel_process(&self) -> klib::tasks::process::ProcessHandle<HW> {
+    pub(in crate::klib) fn kernel_process(&self) -> klib::tasks::ProcessHandle<HW> {
         self.kernel_process
             .as_ref()
             .expect("kernel process not initialized yet")
@@ -95,7 +95,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
 
     pub(in crate::klib) fn threads(
         &self,
-    ) -> impl Iterator<Item = (klib::tasks::thread::ThreadHandle<HW>, ThreadState)> {
+    ) -> impl Iterator<Item = (klib::tasks::ThreadHandle<HW>, ThreadState)> {
         let mut handled_running_thread = false;
         let mut queue_index = 0;
         let mut thread_index = 0;
@@ -133,7 +133,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
 
     pub(in crate::klib) fn processes(
         &self,
-    ) -> impl Iterator<Item = klib::tasks::process::ProcessHandle<HW>> {
+    ) -> impl Iterator<Item = klib::tasks::ProcessHandle<HW>> {
         let mut threads = self.threads();
         let mut earlier_thread_count = 0;
         core::iter::from_fn(move || {
@@ -275,9 +275,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         self.current_queue = Some(queue.clone());
         Some(queue)
     }
-    fn pick_next_task_from_mutex_wait_list(
-        &mut self,
-    ) -> Option<klib::tasks::thread::ThreadHandle<HW>> {
+    fn pick_next_task_from_mutex_wait_list(&mut self) -> Option<klib::tasks::ThreadHandle<HW>> {
         let result_idx = self.mutex_wait_threads.iter().position(|thread_h| {
             let thread = thread_h.borrow_mut();
             let (waiting_mutex, source_loc) = thread.waiting_mutex.as_ref().unwrap();
@@ -298,7 +296,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         }
         None
     }
-    fn pick_next_task(&mut self) -> Option<klib::tasks::thread::ThreadHandle<HW>> {
+    fn pick_next_task(&mut self) -> Option<klib::tasks::ThreadHandle<HW>> {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         let mut result;
         loop {
@@ -328,7 +326,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         }
         result
     }
-    pub(in crate::klib) fn running_thread(&self) -> &klib::tasks::thread::ThreadHandle<HW> {
+    pub(in crate::klib) fn running_thread(&self) -> &klib::tasks::ThreadHandle<HW> {
         self.running_thread
             .as_ref()
             .expect("there's no running thread")
@@ -354,7 +352,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             _irq_disable: irq_disable,
         }
     }
-    pub(in crate::klib) fn queue(&mut self, thread: klib::tasks::thread::ThreadHandle<HW>) {
+    pub(in crate::klib) fn queue(&mut self, thread: klib::tasks::ThreadHandle<HW>) {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         let queue = self.get_queue(thread.borrow().process().borrow().priority);
         queue.borrow_mut().threads.insert(0, thread);
@@ -388,13 +386,13 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
     pub(in crate::klib) fn init_initial_process(
         &mut self,
         kglobals: &'static klib::KGlobals<HW>,
-        kernel_address_space: klib::mem::vmm::AddressSpaceHandle<HW>,
+        kernel_address_space: klib::mem::AddressSpaceHandle<HW>,
     ) -> Result<(), &'static str> {
         assert!(self.running_thread.is_none());
         // Init values for thread is not used, as those are only used for fresh new
         // threads, and boot thread is what we are running now.
-        self.kernel_process = Some(klib::tasks::process::Process::new(kernel_address_space));
-        self.running_thread = Some(klib::tasks::thread::Thread::new(
+        self.kernel_process = Some(klib::tasks::Process::new(kernel_address_space));
+        self.running_thread = Some(klib::tasks::Thread::new(
             kglobals,
             &self.kernel_process(),
             0,
@@ -437,9 +435,9 @@ mod tests {
         &TEST_KGLOBALS
     }
 
-    fn test_process(priority: i8) -> klib::tasks::process::ProcessHandle<klib::hal::TestHW> {
-        let address_space = klib::mem::vmm::AddressSpace::new(0x1000 as *mut u8, 16 * 4096, false);
-        let process = klib::tasks::process::Process::new(address_space);
+    fn test_process(priority: i8) -> klib::tasks::ProcessHandle<klib::hal::TestHW> {
+        let address_space = klib::mem::AddressSpace::new(0x1000 as *mut u8, 16 * 4096, false);
+        let process = klib::tasks::Process::new(address_space);
         process.borrow_mut().priority = priority;
         process
     }
@@ -448,11 +446,11 @@ mod tests {
         kglobals: &'static klib::KGlobals<klib::hal::TestHW>,
         priority: i8,
     ) -> (
-        klib::tasks::process::ProcessHandle<klib::hal::TestHW>,
-        klib::tasks::thread::ThreadHandle<klib::hal::TestHW>,
+        klib::tasks::ProcessHandle<klib::hal::TestHW>,
+        klib::tasks::ThreadHandle<klib::hal::TestHW>,
     ) {
         let process = test_process(priority);
-        let thread = klib::tasks::thread::Thread::new(
+        let thread = klib::tasks::Thread::new(
             kglobals,
             &process,
             1024,
@@ -466,7 +464,7 @@ mod tests {
         scheduler: &mut Scheduler<klib::hal::TestHW>,
         kglobals: &'static klib::KGlobals<klib::hal::TestHW>,
     ) {
-        let address_space = klib::mem::vmm::AddressSpace::new(0x1000 as *mut u8, 16 * 4096, false);
+        let address_space = klib::mem::AddressSpace::new(0x1000 as *mut u8, 16 * 4096, false);
         scheduler
             .init_initial_process(kglobals, address_space)
             .unwrap();

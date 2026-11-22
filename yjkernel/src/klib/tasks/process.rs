@@ -25,17 +25,17 @@ pub(crate) fn process_entry_returned() -> ! {
 }
 
 pub(in crate::klib) struct Process<HW: klib::hal::Hardware> {
-    address_space: klib::mem::vmm::AddressSpaceHandle<HW>,
+    address_space: klib::mem::AddressSpaceHandle<HW>,
     pub(super) priority: i8,
-    queued_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
-    ran_threads: Vec<klib::tasks::thread::ThreadHandle<HW>>,
+    queued_threads: Vec<klib::tasks::ThreadHandle<HW>>,
+    ran_threads: Vec<klib::tasks::ThreadHandle<HW>>,
 }
 
 pub(in crate::klib) type ProcessHandle<HW> = Rc<RefCell<Process<HW>>>;
 
 impl<HW: klib::hal::Hardware> Process<HW> {
     pub(in crate::klib) fn new(
-        address_space: klib::mem::vmm::AddressSpaceHandle<HW>,
+        address_space: klib::mem::AddressSpaceHandle<HW>,
     ) -> ProcessHandle<HW> {
         Rc::new(RefCell::new(Self {
             address_space,
@@ -44,7 +44,7 @@ impl<HW: klib::hal::Hardware> Process<HW> {
             ran_threads: Vec::new(),
         }))
     }
-    pub(in crate::klib) fn address_space(&self) -> klib::mem::vmm::AddressSpaceHandle<HW> {
+    pub(in crate::klib) fn address_space(&self) -> klib::mem::AddressSpaceHandle<HW> {
         self.address_space.clone()
     }
     pub(in crate::klib) fn is_user(&self) -> bool {
@@ -53,21 +53,19 @@ impl<HW: klib::hal::Hardware> Process<HW> {
     pub(in crate::klib) fn priority(&self) -> i8 {
         self.priority
     }
-    pub(in crate::klib) fn threads(
-        &self,
-    ) -> impl Iterator<Item = klib::tasks::thread::ThreadHandle<HW>> {
+    pub(in crate::klib) fn threads(&self) -> impl Iterator<Item = klib::tasks::ThreadHandle<HW>> {
         self.queued_threads
             .iter()
             .chain(self.ran_threads.iter())
             .cloned()
     }
-    pub(in crate::klib) fn add_thread(&mut self, thr: &klib::tasks::thread::ThreadHandle<HW>) {
+    pub(in crate::klib) fn add_thread(&mut self, thr: &klib::tasks::ThreadHandle<HW>) {
         self.queued_threads.push(thr.clone());
     }
     pub(in crate::klib) fn queued_threads_left(&self) -> bool {
         !self.queued_threads.is_empty()
     }
-    pub(in crate::klib) fn pick_next_thread(&mut self) -> klib::tasks::thread::ThreadHandle<HW> {
+    pub(in crate::klib) fn pick_next_thread(&mut self) -> klib::tasks::ThreadHandle<HW> {
         if self.queued_threads.is_empty() {
             for thr in self.ran_threads.drain(0..self.ran_threads.len()) {
                 self.queued_threads.push(thr);
@@ -80,7 +78,7 @@ impl<HW: klib::hal::Hardware> Process<HW> {
         self.ran_threads.push(thr.clone());
         thr
     }
-    pub(in crate::klib) fn running_thread(&self) -> klib::tasks::thread::ThreadHandle<HW> {
+    pub(in crate::klib) fn running_thread(&self) -> klib::tasks::ThreadHandle<HW> {
         self.ran_threads
             .last()
             .expect("there's no running thread")

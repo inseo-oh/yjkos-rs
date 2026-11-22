@@ -88,7 +88,7 @@ impl klib::hal::Hardware for Hardware {
     }
     fn mmu_emulate(
         virt: *mut u8,
-        flags: klib::mem::vmm::MapFlags,
+        flags: klib::mem::MapFlags,
         is_from_user: bool,
     ) -> Result<klib::PhysicalPtr, &'static str> {
         mmu::emulate(virt, flags, is_from_user)
@@ -100,7 +100,7 @@ impl klib::hal::Hardware for Hardware {
         virt_base: *mut u8,
         phys_base: klib::PhysicalPtr,
         page_count: usize,
-        flags: klib::mem::vmm::MapFlags,
+        flags: klib::mem::MapFlags,
         user_access: bool,
     ) -> Result<(), &'static str> {
         mmu::map(virt_base, phys_base, page_count, flags, user_access)
@@ -111,7 +111,7 @@ impl klib::hal::Hardware for Hardware {
     fn mmu_remap(
         virt_base: *mut u8,
         page_count: usize,
-        flags: klib::mem::vmm::MapFlags,
+        flags: klib::mem::MapFlags,
         user_access: bool,
     ) -> Result<(), &'static str> {
         mmu::remap(virt_base, page_count, flags, user_access)

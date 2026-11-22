@@ -6,4 +6,5 @@ pub(in crate::klib) mod pmm;
 pub(crate) mod vmm;
 
 pub(crate) use pmm::PhysicalMemoryManager;
-pub(crate) use vmm::VirtualMemoryManager;
+pub(crate) use vmm::{MapFlags, VirtualMemoryManager};
+pub(in crate::klib) use vmm::{AddressSpace, AddressSpaceHandle, ObjectHandle};

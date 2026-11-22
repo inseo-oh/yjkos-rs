@@ -31,7 +31,7 @@ static MUTEX_CONTENDER_ACQUIRED: AtomicUsize = AtomicUsize::new(0);
 
 struct WorkerContext<HW: Hardware> {
     kglobals: &'static klib::KGlobals<HW>,
-    mutex: *const klib::tasks::mutex::Mutex<HW, usize>,
+    mutex: *const klib::tasks::Mutex<HW, usize>,
     thread_index: usize,
 }
 
@@ -131,7 +131,7 @@ pub(in crate::klib) fn run<HW: Hardware>(
     MUTEX_CONTENDER_WAITING.store(0, Ordering::Relaxed);
     MUTEX_CONTENDER_ACQUIRED.store(0, Ordering::Relaxed);
 
-    let test_mutex = klib::tasks::mutex::Mutex::<HW, usize>::new(0);
+    let test_mutex = klib::tasks::Mutex::<HW, usize>::new(0);
     let contexts: [WorkerContext<HW>; THREAD_COUNT] =
         core::array::from_fn(|thread_index| WorkerContext {
             kglobals,
@@ -144,10 +144,10 @@ pub(in crate::klib) fn run<HW: Hardware>(
         let mut scheduler = kglobals.sched.lock();
         for thread_index in 0..THREAD_COUNT {
             let context = core::ptr::addr_of!(contexts[thread_index]);
-            let thread = klib::tasks::thread::Thread::new(
+            let thread = klib::tasks::Thread::new(
                 kglobals,
                 &scheduler.kernel_process(),
-                klib::tasks::thread::THREAD_STACK_SIZE,
+                klib::tasks::THREAD_STACK_SIZE,
                 klib::hal::ThreadStart::Kernel {
                     entry: stress_worker::<HW>,
                     data: context as usize,
@@ -155,10 +155,10 @@ pub(in crate::klib) fn run<HW: Hardware>(
             )?;
             scheduler.queue(thread);
         }
-        let returning_thread = klib::tasks::thread::Thread::new(
+        let returning_thread = klib::tasks::Thread::new(
             kglobals,
             &scheduler.kernel_process(),
-            klib::tasks::thread::THREAD_STACK_SIZE,
+            klib::tasks::THREAD_STACK_SIZE,
             klib::hal::ThreadStart::Kernel {
                 entry: return_worker,
                 data: 0,
