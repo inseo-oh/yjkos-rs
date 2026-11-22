@@ -47,7 +47,7 @@ build-yjkernel: $(TARGET_YJKOS)
 	$(CARGO_BUILD) -p yjkernel -Z build-std=core,alloc -Zjson-target-spec --target $(KERNEL_JSON_TARGET)
 
 build-yjkos:
-	$(CARGO_BUILD) -p yjkos -Z build-std=core -Zjson-target-spec --target $(USER_JSON_TARGET)
+	$(CARGO_BUILD) -p yjkos -Z build-std=core,alloc -Zjson-target-spec --target $(USER_JSON_TARGET)
 
 run: $(TARGET_ISO)
 	qemu-system-i386 -d guest_errors$(QEMU_DEBUG_FLAGS) -no-reboot -s -m 64M -nographic -serial mon:stdio -net none -boot d \

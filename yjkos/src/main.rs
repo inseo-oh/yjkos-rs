@@ -5,6 +5,11 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
+use alloc::{boxed::Box, vec::Vec};
+
+mod global_alloc;
 mod syscall;
 mod vmm;
 
@@ -105,6 +110,33 @@ fn test_vmm_rejects_empty_array() -> Result<(), &'static str> {
     }
 }
 
+fn test_standard_containers() -> Result<(), &'static str> {
+    global_alloc::init()?;
+
+    let mut values = Vec::new();
+    for value in 0..128_u32 {
+        values.push(value * 3);
+    }
+    if values.len() != 128 {
+        return Err("Vec length is incorrect");
+    }
+    for (index, value) in values.iter().enumerate() {
+        if *value != (index as u32) * 3 {
+            return Err("Vec contents are incorrect");
+        }
+    }
+
+    let boxed = Box::new(0x5a5a_c3c3_u32);
+    if *boxed != 0x5a5a_c3c3 {
+        return Err("Box contents are incorrect");
+    }
+
+    drop(values);
+    drop(boxed);
+
+    Ok(())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
     write_str("vmm tests\n");
@@ -118,6 +150,7 @@ pub extern "C" fn _start() -> ! {
         test_vmm_rejects_oversized_array(),
     );
     report_result("vmm empty array check", test_vmm_rejects_empty_array());
+    report_result("Vec + Box with global allocator", test_standard_containers());
 
     loop {
         core::hint::spin_loop();
