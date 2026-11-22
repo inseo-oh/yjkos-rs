@@ -181,7 +181,7 @@ fn map_single_page(
     if flags.write {
         pte_val |= PTE_FLAG_RW;
     }
-    if flags.no_cache {
+    if flags.cache_inhibit {
         pte_val |= PTE_FLAG_PCD;
     }
     if user_access {
@@ -223,7 +223,7 @@ fn remap_single_page(virt: *mut u8, flags: klib::mem::MapFlags, user_access: boo
     if flags.write {
         pte_value |= PTE_FLAG_RW;
     }
-    if flags.no_cache {
+    if flags.cache_inhibit {
         pte_value |= PTE_FLAG_PCD;
     }
     if user_access {
@@ -368,7 +368,7 @@ pub(in crate::hal) fn unmap(virt_base: *mut u8, page_count: usize) -> Result<(),
     // TODO: Clean-up unused PD entries
     Ok(())
 }
-pub(in crate::hal) fn scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) {
+pub(in crate::hal) fn scratch_map(phys_base: klib::PhysicalPtr, cache_inhibit: bool) {
     assert!(!super::Hardware::irq_enabled());
     assert_physical_addr_valid(phys_base, 1);
     assert!(toolbox::miscmath::is_aligned(phys_base.addr(), PAGE_SIZE));
@@ -385,7 +385,7 @@ pub(in crate::hal) fn scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) 
     }
     // Update the table ========================================================
     let mut pte_value = phys_base.addr() as u32 | PTE_FLAG_P | PTE_FLAG_RW;
-    if no_cache {
+    if cache_inhibit {
         pte_value |= PTE_FLAG_PCD;
     }
     write_pte(pde, pte, pte_value);

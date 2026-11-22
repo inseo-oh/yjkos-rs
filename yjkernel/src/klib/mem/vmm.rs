@@ -641,7 +641,7 @@ pub(crate) struct MapFlags {
     pub(crate) read: bool,
     pub(crate) write: bool,
     pub(crate) exec: bool,
-    pub(crate) no_cache: bool,
+    pub(crate) cache_inhibit: bool,
 }
 
 #[repr(C)]
@@ -1153,7 +1153,7 @@ mod tests {
         assert!(!flags.read);
         assert!(!flags.write);
         assert!(!flags.exec);
-        assert!(!flags.no_cache);
+        assert!(!flags.cache_inhibit);
     }
 
     #[test]

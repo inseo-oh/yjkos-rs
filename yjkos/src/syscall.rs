@@ -12,12 +12,12 @@ const SYSCALL_RESULT_OPERATION_FAILED: u32 = 0xC0000003;
 const VM_ALLOC_FLAG_READ: u32 = 1 << 0;
 const VM_ALLOC_FLAG_WRITE: u32 = 1 << 1;
 const VM_ALLOC_FLAG_EXEC: u32 = 1 << 2;
-const VM_ALLOC_FLAG_NO_CACHE: u32 = 1 << 3;
+const VM_ALLOC_FLAG_CACHE_INHIBIT: u32 = 1 << 3;
 const VM_ALLOC_FLAG_ALLOC_PHYS: u32 = 1 << 4;
 const VM_ALLOC_VALID_FLAGS: u32 = VM_ALLOC_FLAG_READ
     | VM_ALLOC_FLAG_WRITE
     | VM_ALLOC_FLAG_EXEC
-    | VM_ALLOC_FLAG_NO_CACHE
+    | VM_ALLOC_FLAG_CACHE_INHIBIT
     | VM_ALLOC_FLAG_ALLOC_PHYS;
 
 unsafe fn syscall4(
@@ -77,7 +77,7 @@ pub struct VMMapFlags {
     pub read: bool,
     pub write: bool,
     pub exec: bool,
-    pub no_cache: bool,
+    pub cache_inhibit: bool,
 }
 pub fn vm_alloc_object(
     phys_base: Option<usize>,
@@ -94,8 +94,8 @@ pub fn vm_alloc_object(
     if flags.exec {
         flags_val |= VM_ALLOC_FLAG_EXEC;
     }
-    if flags.no_cache {
-        flags_val |= VM_ALLOC_FLAG_NO_CACHE;
+    if flags.cache_inhibit {
+        flags_val |= VM_ALLOC_FLAG_CACHE_INHIBIT;
     }
     if phys_base.is_none() {
         flags_val |= VM_ALLOC_FLAG_ALLOC_PHYS;
@@ -126,8 +126,8 @@ pub fn vm_alloc_object_at(
     if flags.exec {
         flags_val |= VM_ALLOC_FLAG_EXEC;
     }
-    if flags.no_cache {
-        flags_val |= VM_ALLOC_FLAG_NO_CACHE;
+    if flags.cache_inhibit {
+        flags_val |= VM_ALLOC_FLAG_CACHE_INHIBIT;
     }
     if phys_base.is_none() {
         flags_val |= VM_ALLOC_FLAG_ALLOC_PHYS;

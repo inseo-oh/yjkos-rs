@@ -116,8 +116,8 @@ impl klib::hal::Hardware for Hardware {
     ) -> Result<(), &'static str> {
         mmu::remap(virt_base, page_count, flags, user_access)
     }
-    fn mmu_scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) {
-        mmu::scratch_map(phys_base, no_cache);
+    fn mmu_scratch_map(phys_base: klib::PhysicalPtr, cache_inhibit: bool) {
+        mmu::scratch_map(phys_base, cache_inhibit);
     }
     fn create_address_space(base: *mut u8, page_count: usize, is_user: bool) -> Self::AddressSpace {
         mmu::AddressSpace::new(base, page_count, is_user)

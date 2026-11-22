@@ -74,7 +74,7 @@ pub(crate) trait Hardware: 'static {
         user_access: bool,
     ) -> Result<(), &'static str>;
     fn mmu_flush_tlb_for(ptr: *mut u8);
-    fn mmu_scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool);
+    fn mmu_scratch_map(phys_base: klib::PhysicalPtr, cache_inhibit: bool);
     fn stack_trace_for_trap_frame(trap_frame: &Self::TrapFrame);
     fn stack_trace();
     fn thread_create(
@@ -214,7 +214,7 @@ impl Hardware for TestHW {
     unsafe fn enter_user_mode(_entry: usize, _user_stack: usize) -> ! {
         panic!("TestHW cannot enter user mode");
     }
-    fn mmu_scratch_map(_phys_base: klib::PhysicalPtr, _no_cache: bool) {}
+    fn mmu_scratch_map(_phys_base: klib::PhysicalPtr, _cache_inhibit: bool) {}
     unsafe fn thread_switch(
         from: *mut Self::Thread,
         to: *mut Self::Thread,

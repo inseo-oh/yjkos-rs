@@ -134,7 +134,7 @@ impl<HW: klib::hal::Hardware> Command<HW> for ShowCommand {
                 );
                 print!("{}", if obj.flags.read { "R" } else { "-" });
                 print!("{}", if obj.flags.write { "W" } else { "-" });
-                print!("{}", if obj.flags.no_cache { "I" } else { "-" });
+                print!("{}", if obj.flags.cache_inhibit { "I" } else { "-" });
                 println!("   |");
             }
             println!();

@@ -19,12 +19,12 @@ pub(in crate::klib) const SYSCALL_RESULT_OPERATION_FAILED: u32 = 0xC0000003;
 const VM_ALLOC_FLAG_READ: u32 = 1 << 0;
 const VM_ALLOC_FLAG_WRITE: u32 = 1 << 1;
 const VM_ALLOC_FLAG_EXEC: u32 = 1 << 2;
-const VM_ALLOC_FLAG_NO_CACHE: u32 = 1 << 3;
+const VM_ALLOC_FLAG_CACHE_INHIBIT: u32 = 1 << 3;
 const VM_ALLOC_FLAG_ALLOC_PHYS: u32 = 1 << 4;
 const VM_ALLOC_VALID_FLAGS: u32 = VM_ALLOC_FLAG_READ
     | VM_ALLOC_FLAG_WRITE
     | VM_ALLOC_FLAG_EXEC
-    | VM_ALLOC_FLAG_NO_CACHE
+    | VM_ALLOC_FLAG_CACHE_INHIBIT
     | VM_ALLOC_FLAG_ALLOC_PHYS;
 
 static SYSCALL_KGLOBALS: AtomicPtr<()> = AtomicPtr::new(core::ptr::null_mut());
@@ -75,7 +75,7 @@ fn trap_handler<HW: klib::hal::Hardware>(
                     read: raw_flags & VM_ALLOC_FLAG_READ != 0,
                     write: raw_flags & VM_ALLOC_FLAG_WRITE != 0,
                     exec: raw_flags & VM_ALLOC_FLAG_EXEC != 0,
-                    no_cache: raw_flags & VM_ALLOC_FLAG_NO_CACHE != 0,
+                    cache_inhibit: raw_flags & VM_ALLOC_FLAG_CACHE_INHIBIT != 0,
                 };
                 let phys_base = if raw_flags & VM_ALLOC_FLAG_ALLOC_PHYS != 0 {
                     None
@@ -118,7 +118,7 @@ fn trap_handler<HW: klib::hal::Hardware>(
                     read: raw_flags & VM_ALLOC_FLAG_READ != 0,
                     write: raw_flags & VM_ALLOC_FLAG_WRITE != 0,
                     exec: raw_flags & VM_ALLOC_FLAG_EXEC != 0,
-                    no_cache: raw_flags & VM_ALLOC_FLAG_NO_CACHE != 0,
+                    cache_inhibit: raw_flags & VM_ALLOC_FLAG_CACHE_INHIBIT != 0,
                 };
                 let phys_base = if raw_flags & VM_ALLOC_FLAG_ALLOC_PHYS != 0 {
                     None
