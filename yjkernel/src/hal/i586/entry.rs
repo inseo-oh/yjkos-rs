@@ -119,7 +119,7 @@ r#"
 
 .equ MULTIBOOT_INFO_ALIGN, 0x00000004
 
-.equ MB_FLAGS,    (MULTIBOOT_PAGE_ALIGN | MULTIBOOT_MEMORY_INFO | MULTIBOOT_VIDEO_MODE)
+.equ MB_FLAGS,    (MULTIBOOT_PAGE_ALIGN | MULTIBOOT_MEMORY_INFO)
 .equ MB_CHECKSUM, -(MULTIBOOT_HEADER_MAGIC + MB_FLAGS)
 
 /* Multiboot header */
@@ -128,13 +128,6 @@ r#"
 .long MULTIBOOT_HEADER_MAGIC
 .long MB_FLAGS
 .long MB_CHECKSUM
-/* a.out kludge */
-.skip 160 /* Skip it */
-/* Video mode */
-.long 1   /* mode_type - Text mode */
-.long 0   /* width     - No preference */
-.long 0   /* height    - No preference */
-.long 0   /* depth     - No preference */
 
 /******************************************************************************/
 .section .text.init
