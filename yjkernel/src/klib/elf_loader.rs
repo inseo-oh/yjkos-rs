@@ -7,9 +7,9 @@ use alloc::vec::Vec;
 use crate::{klib, println};
 use core::{ops::Range, slice};
 
-pub const USER_MODE_BASE: usize = 0x8000_0000;
+pub(in crate::klib) const USER_MODE_BASE: usize = 0x8000_0000;
 
-pub fn load<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn load<HW: klib::hal::Hardware>(
     program: &[u8],
     address_space: &klib::mem::vmm::AddressSpaceHandle<HW>,
     vmm: &klib::irq::Mutex<HW, klib::mem::vmm::VirtualMemoryManager<HW>>,

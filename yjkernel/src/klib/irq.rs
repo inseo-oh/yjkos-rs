@@ -10,12 +10,12 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-pub struct DisableGuard<HW: klib::hal::Hardware> {
+pub(crate) struct DisableGuard<HW: klib::hal::Hardware> {
     irq_was_enabled: bool,
     hw: PhantomData<HW>,
 }
 impl<HW: klib::hal::Hardware> DisableGuard<HW> {
-    pub fn lock() -> Self {
+    pub(crate) fn lock() -> Self {
         let irq_was_enabled = HW::irq_enabled();
         HW::irq_disable();
         Self {
@@ -32,20 +32,20 @@ impl<HW: klib::hal::Hardware> Drop for DisableGuard<HW> {
     }
 }
 
-pub struct Mutex<HW, T> {
+pub(crate) struct Mutex<HW, T> {
     locked: AtomicBool,
     data: UnsafeCell<T>,
     _hw: PhantomData<HW>,
 }
 impl<HW: klib::hal::Hardware, T> Mutex<HW, T> {
-    pub const fn new(data: T) -> Self {
+    pub(crate) const fn new(data: T) -> Self {
         Self {
             locked: AtomicBool::new(false),
             data: UnsafeCell::new(data),
             _hw: PhantomData,
         }
     }
-    pub fn lock<'a>(&'a self) -> MutexGuard<'a, HW, T> {
+    pub(crate) fn lock<'a>(&'a self) -> MutexGuard<'a, HW, T> {
         let lock = DisableGuard::lock();
         self.locked
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -58,7 +58,7 @@ impl<HW: klib::hal::Hardware, T> Mutex<HW, T> {
 }
 unsafe impl<HW: klib::hal::Hardware, T: Send> Sync for Mutex<HW, T> {}
 
-pub struct MutexGuard<'a, HW: klib::hal::Hardware, T> {
+pub(crate) struct MutexGuard<'a, HW: klib::hal::Hardware, T> {
     mutex: &'a Mutex<HW, T>,
     lock: DisableGuard<HW>,
 }

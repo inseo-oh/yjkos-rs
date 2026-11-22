@@ -5,17 +5,17 @@
 use crate::{klib, print, println};
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-pub const SYSCALL_MAX_PARAM_COUNT: usize = 5;
+pub(crate) const SYSCALL_MAX_PARAM_COUNT: usize = 5;
 
-pub const SYSCALL_WRITE_CHAR: u32 = 0x00;
-pub const SYSCALL_VM_ALLOC_OBJECT: u32 = 0x01;
-pub const SYSCALL_VM_ALLOC_OBJECT_AT: u32 = 0x02;
-pub const SYSCALL_VM_FREE_OBJECT: u32 = 0x03;
+pub(in crate::klib) const SYSCALL_WRITE_CHAR: u32 = 0x00;
+pub(in crate::klib) const SYSCALL_VM_ALLOC_OBJECT: u32 = 0x01;
+pub(in crate::klib) const SYSCALL_VM_ALLOC_OBJECT_AT: u32 = 0x02;
+pub(in crate::klib) const SYSCALL_VM_FREE_OBJECT: u32 = 0x03;
 
-pub const SYSCALL_RESULT_OK: u32 = 0x00000000;
-pub const SYSCALL_RESULT_BAD_CALL_NUM: u32 = 0xC0000001;
-pub const SYSCALL_RESULT_INVALID_ARGUMENT: u32 = 0xC0000002;
-pub const SYSCALL_RESULT_OPERATION_FAILED: u32 = 0xC0000003;
+pub(in crate::klib) const SYSCALL_RESULT_OK: u32 = 0x00000000;
+pub(in crate::klib) const SYSCALL_RESULT_BAD_CALL_NUM: u32 = 0xC0000001;
+pub(in crate::klib) const SYSCALL_RESULT_INVALID_ARGUMENT: u32 = 0xC0000002;
+pub(in crate::klib) const SYSCALL_RESULT_OPERATION_FAILED: u32 = 0xC0000003;
 const VM_ALLOC_FLAG_READ: u32 = 1 << 0;
 const VM_ALLOC_FLAG_WRITE: u32 = 1 << 1;
 const VM_ALLOC_FLAG_EXEC: u32 = 1 << 2;
@@ -174,7 +174,7 @@ fn trap_handler<HW: klib::hal::Hardware>(
     HW::prepare_syscall_return(call_ret, trap_frame);
 }
 
-pub fn init<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn init<HW: klib::hal::Hardware>(
     trap_manager: &mut klib::traps::TrapManager<HW>,
     kglobals: &'static klib::KGlobals<HW>,
 ) {

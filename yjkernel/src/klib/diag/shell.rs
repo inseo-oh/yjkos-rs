@@ -410,7 +410,7 @@ struct Keyword {
     help: &'static str,
 }
 impl Keyword {
-    pub fn new(name: &'static str, help: &'static str) -> Self {
+    pub(in crate::klib) fn new(name: &'static str, help: &'static str) -> Self {
         Self { name, help }
     }
 }
@@ -418,7 +418,7 @@ struct KeywordParameter {
     keywords: Vec<Keyword>,
 }
 impl KeywordParameter {
-    pub fn new(keywords: &[Keyword]) -> Box<Self> {
+    pub(in crate::klib) fn new(keywords: &[Keyword]) -> Box<Self> {
         Box::new(Self {
             keywords: keywords.to_vec(),
         })
@@ -488,14 +488,14 @@ trait Completable {
     }
 }
 
-pub struct Shell<HW: klib::hal::Hardware> {
+pub(in crate::klib) struct Shell<HW: klib::hal::Hardware> {
     command_buf: String,
     commands: Vec<Box<dyn Command<HW>>>,
     kglobals: &'static klib::KGlobals<HW>,
 }
 
 impl<HW: klib::hal::Hardware> Shell<HW> {
-    pub fn new(kglobals: &'static klib::KGlobals<HW>) -> Self {
+    pub(in crate::klib) fn new(kglobals: &'static klib::KGlobals<HW>) -> Self {
         Self {
             command_buf: String::new(),
             commands: commands(),
@@ -641,7 +641,7 @@ impl<HW: klib::hal::Hardware> Shell<HW> {
             }
         }
     }
-    pub fn run(&mut self) -> ! {
+    pub(in crate::klib) fn run(&mut self) -> ! {
         loop {
             self.prompt()
         }

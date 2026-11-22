@@ -75,21 +75,21 @@ const MCR_FLAG_OUT1: u8 = 1 << 2;
 const MCR_FLAG_OUT2: u8 = 1 << 3;
 const MCR_FLAG_LOOPBACK: u8 = 1 << 4;
 
-pub struct SerialI8250<HWPIO: klib::devlib::HardwarePortIO> {
+pub(crate) struct SerialI8250<HWPIO: klib::devlib::HardwarePortIO> {
     master_clock: u32,
     base_addr: u16,
     _hwpio: PhantomData<HWPIO>,
 }
 
 impl<HWPIO: klib::devlib::HardwarePortIO> SerialI8250<HWPIO> {
-    pub const fn new(base_addr: u16, master_clock: u32) -> Self {
+    pub(crate) const fn new(base_addr: u16, master_clock: u32) -> Self {
         Self {
             base_addr,
             master_clock,
             _hwpio: PhantomData,
         }
     }
-    pub fn init(&self, baud_rate: u32) -> Result<(), &'static str> {
+    pub(crate) fn init(&self, baud_rate: u32) -> Result<(), &'static str> {
         let divisor = self.get_divisor(baud_rate)?;
         self.write_ier(0);
         self.write_reg(
@@ -100,15 +100,15 @@ impl<HWPIO: klib::devlib::HardwarePortIO> SerialI8250<HWPIO> {
         self.write_reg(REG_LCR, LCR_FLAG_WORD_LEN_EIGHT);
         Ok(())
     }
-    pub fn write_byte(&self, byte: u8) {
+    pub(crate) fn write_byte(&self, byte: u8) {
         self.wait_lsr_ready_to_send();
         self.write_data(byte);
     }
-    pub fn read_byte(&self) -> u8 {
+    pub(crate) fn read_byte(&self) -> u8 {
         self.wait_lsr_ready_to_recv();
         self.read_data()
     }
-    pub fn try_read_byte(&self) -> Option<u8> {
+    pub(crate) fn try_read_byte(&self) -> Option<u8> {
         self.is_ready_to_recv().then(|| self.read_data())
     }
     fn get_divisor(&self, baudrate: u32) -> Result<u16, &'static str> {
@@ -174,7 +174,7 @@ impl<HWPIO: klib::devlib::HardwarePortIO> SerialI8250<HWPIO> {
     fn wait_lsr_ready_to_recv(&self) {
         while !self.is_ready_to_recv() {}
     }
-    pub fn run_loopback_test(&self) -> Result<(), &'static str> {
+    pub(crate) fn run_loopback_test(&self) -> Result<(), &'static str> {
         let old_mcr = self.read_reg(REG_MCR);
         let result = (|| {
             self.write_reg(REG_MCR, old_mcr | MCR_FLAG_LOOPBACK);

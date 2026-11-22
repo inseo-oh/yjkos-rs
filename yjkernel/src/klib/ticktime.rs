@@ -4,20 +4,20 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-pub type TickTime = AtomicU32;
+pub(in crate::klib) type TickTime = AtomicU32;
 
 static TICKTIME: TickTime = AtomicU32::new(0);
 
 #[cfg(test)]
 static TEST_TICKTIME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-pub fn load() -> u32 {
+pub(in crate::klib) fn load() -> u32 {
     TICKTIME.load(Ordering::Relaxed)
 }
-pub fn store(t: u32) {
+pub(in crate::klib) fn store(t: u32) {
     TICKTIME.store(t, Ordering::Relaxed);
 }
-pub fn add(t: u32) {
+pub(crate) fn add(t: u32) {
     TICKTIME.fetch_add(t, Ordering::Relaxed);
 }
 

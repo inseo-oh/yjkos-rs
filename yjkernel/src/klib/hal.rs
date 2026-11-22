@@ -7,7 +7,7 @@ use core::ptr::null_mut;
 
 use crate::klib;
 
-pub trait HardwareAddressSpace {
+pub(crate) trait HardwareAddressSpace {
     fn current() -> Self
     where
         Self: Sized;
@@ -28,14 +28,14 @@ pub trait HardwareAddressSpace {
 }
 
 #[derive(Clone, Copy)]
-pub enum ThreadStart {
+pub(crate) enum ThreadStart {
     /// Start a kernel function with its argument in the normal call frame.
     Kernel { entry: fn(usize), data: usize },
     /// IRET to a user instruction pointer using the thread's allocated stack.
     User { entry: usize },
 }
 
-pub trait Hardware: 'static {
+pub(crate) trait Hardware: 'static {
     const PAGE_SIZE: usize;
     const KERNEL_SPACE_BASE_ADDRESS: usize;
     const SCRATCH_MAP_BASE: *mut u8;
@@ -107,14 +107,14 @@ pub trait Hardware: 'static {
 
 #[cfg(test)]
 #[derive(Default)]
-pub struct TestHW;
+pub(in crate::klib) struct TestHW;
 
 #[cfg(test)]
 std::thread_local! {
     static TEST_IRQ_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
 }
 
-pub struct TestHWAddressSpace;
+pub(in crate::klib) struct TestHWAddressSpace;
 
 impl HardwareAddressSpace for TestHWAddressSpace {
     fn current() -> Self {
@@ -127,11 +127,11 @@ impl HardwareAddressSpace for TestHWAddressSpace {
 
 #[cfg(test)]
 #[derive(Default)]
-pub struct TestHWThread {
-    pub init_stack_size: usize,
-    pub init_main_func: Option<fn(usize)>,
-    pub init_data: usize,
-    pub switch_count: usize,
+pub(in crate::klib) struct TestHWThread {
+    pub(in crate::klib) init_stack_size: usize,
+    pub(in crate::klib) init_main_func: Option<fn(usize)>,
+    pub(in crate::klib) init_data: usize,
+    pub(in crate::klib) switch_count: usize,
 }
 #[cfg(test)]
 impl Hardware for TestHW {

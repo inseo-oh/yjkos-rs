@@ -9,19 +9,19 @@ use crate::{
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, ptr::null_mut};
 
-pub struct VirtualMemoryManager<HW: klib::hal::Hardware> {
+pub(crate) struct VirtualMemoryManager<HW: klib::hal::Hardware> {
     kernel_address_space: Option<AddressSpaceHandle<HW>>,
     user_address_space_override: Option<AddressSpaceHandle<HW>>,
 }
 
 impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
-    pub const fn new() -> Self {
+    pub(in crate::klib) const fn new() -> Self {
         Self {
             kernel_address_space: None,
             user_address_space_override: None,
         }
     }
-    pub fn kernel_address_space(&mut self) -> AddressSpaceHandle<HW> {
+    pub(in crate::klib) fn kernel_address_space(&mut self) -> AddressSpaceHandle<HW> {
         let kernel_start = HW::kernel_vm_start_address();
         let kernel_size = HW::kernel_vm_end_address()
             .checked_sub(kernel_start)
@@ -34,7 +34,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
     pub(in crate::klib) fn existing_kernel_address_space(&self) -> Option<AddressSpaceHandle<HW>> {
         self.kernel_address_space.clone()
     }
-    pub fn address_space_of(
+    pub(in crate::klib) fn address_space_of(
         &mut self,
         ptr: *mut u8,
         sched: &mut klib::tasks::Scheduler<HW>,
@@ -62,7 +62,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
         // Kernel image, scratch page, etc...
         None
     }
-    pub fn ezmap(&mut self, phys_base: klib::PhysicalPtr, size: usize) -> *mut u8 {
+    pub(in crate::klib) fn ezmap(&mut self, phys_base: klib::PhysicalPtr, size: usize) -> *mut u8 {
         let (_, addr) = map_unaligned(
             &self.kernel_address_space(),
             phys_base,
@@ -88,7 +88,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
         );
         VirtualMemoryManager::<HW>::real_page_fault(self, trap_frame);
     }
-    pub fn page_fault(
+    pub(crate) fn page_fault(
         &mut self,
         mut alloc_page: impl FnMut(usize) -> Result<klib::mem::pmm::AllocatedPageInfo, &'static str>,
         ptr: *mut u8,
@@ -98,7 +98,7 @@ impl<HW: klib::hal::Hardware> VirtualMemoryManager<HW> {
         trap_frame: &HW::TrapFrame,
         sched: &mut klib::tasks::Scheduler<HW>,
     ) {
-        let page_base = klib::miscmath::align_ptr_down(ptr, HW::PAGE_SIZE);
+        let page_base = toolbox::miscmath::align_ptr_down(ptr, HW::PAGE_SIZE);
         // Is it valid address? ================================================
         if HW::mmu_emulate(
             ptr,
@@ -222,7 +222,7 @@ impl<HW: klib::hal::Hardware> Default for VirtualMemoryManager<HW> {
     }
 }
 
-pub fn alloc_object<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn alloc_object<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     phys_base: Option<klib::PhysicalPtr>,
     size: usize,
@@ -230,7 +230,7 @@ pub fn alloc_object<HW: klib::hal::Hardware>(
 ) -> Result<ObjectHandle<HW>, &'static str> {
     assert_ne!(size, 0);
     let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-    let page_count = klib::miscmath::size_to_blocks(size, HW::PAGE_SIZE);
+    let page_count = toolbox::miscmath::size_to_blocks(size, HW::PAGE_SIZE);
     let new_size = page_count
         .checked_mul(HW::PAGE_SIZE)
         .ok_or("size too large")?;
@@ -265,7 +265,7 @@ pub fn alloc_object<HW: klib::hal::Hardware>(
         .push(new_object.clone());
     Ok(new_object)
 }
-pub fn alloc_object_at<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn alloc_object_at<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     virt_base: *mut u8,
     phys_base: Option<klib::PhysicalPtr>,
@@ -274,14 +274,14 @@ pub fn alloc_object_at<HW: klib::hal::Hardware>(
 ) -> Result<ObjectHandle<HW>, &'static str> {
     assert_ne!(size, 0);
     let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-    let page_count = klib::miscmath::size_to_blocks(size, HW::PAGE_SIZE);
+    let page_count = toolbox::miscmath::size_to_blocks(size, HW::PAGE_SIZE);
     let new_size = page_count
         .checked_mul(HW::PAGE_SIZE)
         .ok_or("size too large")?;
     if let Some(phys_base) = phys_base {
         assert_eq!(phys_base.align_offset(HW::PAGE_SIZE), 0);
     }
-    assert!(klib::miscmath::is_aligned(virt_base.addr(), HW::PAGE_SIZE));
+    assert!(toolbox::miscmath::is_aligned(virt_base.addr(), HW::PAGE_SIZE));
     let end_addr = virt_base
         .addr()
         .checked_add(new_size - 1)
@@ -337,7 +337,7 @@ pub fn alloc_object_at<HW: klib::hal::Hardware>(
         .push(new_object.clone());
     Ok(new_object)
 }
-pub fn free<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn free<HW: klib::hal::Hardware>(
     object: &ObjectHandle<HW>,
     pmm: &mut klib::mem::PhysicalMemoryManager<HW>,
 ) {
@@ -401,7 +401,7 @@ pub fn free<HW: klib::hal::Hardware>(
         .allocated_object_list
         .remove(remove_pos);
 }
-pub fn alloc_at<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn alloc_at<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     virt_base: *mut u8,
     size: usize,
@@ -409,14 +409,14 @@ pub fn alloc_at<HW: klib::hal::Hardware>(
 ) -> Result<ObjectHandle<HW>, &'static str> {
     alloc_object_at(address_space, virt_base, None, size, flags)
 }
-pub fn alloc<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn alloc<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     size: usize,
     flags: MapFlags,
 ) -> Result<ObjectHandle<HW>, &'static str> {
     alloc_object(address_space, None, size, flags)
 }
-pub fn map<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn map<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     phys_base: klib::PhysicalPtr,
     size: usize,
@@ -424,7 +424,7 @@ pub fn map<HW: klib::hal::Hardware>(
 ) -> Result<ObjectHandle<HW>, &'static str> {
     alloc_object(address_space, Some(phys_base), size, flags)
 }
-pub fn map_at<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn map_at<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     virt_base: *mut u8,
     phys_base: klib::PhysicalPtr,
@@ -433,7 +433,7 @@ pub fn map_at<HW: klib::hal::Hardware>(
 ) -> Result<ObjectHandle<HW>, &'static str> {
     alloc_object_at(address_space, virt_base, Some(phys_base), size, flags)
 }
-pub fn map_unaligned<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn map_unaligned<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     phys_base: klib::PhysicalPtr,
     size: usize,
@@ -447,7 +447,7 @@ pub fn map_unaligned<HW: klib::hal::Hardware>(
     map(address_space, page_base, actual_size, flags)
         .map(|obj| (obj.clone(), unsafe { obj.borrow().start.add(offset) }))
 }
-pub fn map_unaligned_at<HW: klib::hal::Hardware>(
+pub(in crate::klib) fn map_unaligned_at<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     virt_base: *mut u8,
     phys_base: klib::PhysicalPtr,
@@ -464,7 +464,7 @@ pub fn map_unaligned_at<HW: klib::hal::Hardware>(
 }
 
 #[repr(C)]
-pub struct AddressSpace<HW: klib::hal::Hardware> {
+pub(in crate::klib) struct AddressSpace<HW: klib::hal::Hardware> {
     hw_address_space: Rc<RefCell<HW::AddressSpace>>,
     available_object_list: Vec<ObjectHandle<HW>>,
     allocated_object_list: Vec<ObjectHandle<HW>>,
@@ -474,7 +474,11 @@ pub struct AddressSpace<HW: klib::hal::Hardware> {
 pub(in crate::klib) type AddressSpaceHandle<HW> = Rc<RefCell<AddressSpace<HW>>>;
 
 impl<HW: klib::hal::Hardware> AddressSpace<HW> {
-    pub fn new(start: *mut u8, size: usize, is_user: bool) -> AddressSpaceHandle<HW> {
+    pub(in crate::klib) fn new(
+        start: *mut u8,
+        size: usize,
+        is_user: bool,
+    ) -> AddressSpaceHandle<HW> {
         start
             .addr()
             .checked_add(size.checked_sub(1).expect("address space size is zero"))
@@ -494,19 +498,19 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
         address_space.borrow_mut().add_avail_object(&object);
         address_space
     }
-    pub fn is_user(&self) -> bool {
+    pub(in crate::klib) fn is_user(&self) -> bool {
         self.is_user
     }
-    pub fn snapshot_current(&self) {
+    pub(in crate::klib) fn snapshot_current(&self) {
         self.hw_address_space.borrow_mut().snapshot_current();
     }
-    pub fn load(&self) {
+    pub(in crate::klib) fn load(&self) {
         self.hw_address_space.borrow().load();
     }
     /// Runs an MMU operation with this address space's user PDEs loaded.
     /// The current user PDEs are restored afterward; kernel PDEs are shared
     /// and are never changed by the address-space load.
-    pub fn with_active<T>(
+    pub(in crate::klib) fn with_active<T>(
         address_space: &AddressSpaceHandle<HW>,
         vmm: &klib::irq::Mutex<HW, VirtualMemoryManager<HW>>,
         f: impl FnOnce() -> T,
@@ -553,7 +557,7 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
             .iter()
             .find(|object_h| {
                 let object = object_h.borrow();
-                let object_page_count = klib::miscmath::size_to_blocks(object.size, HW::PAGE_SIZE);
+                let object_page_count = toolbox::miscmath::size_to_blocks(object.size, HW::PAGE_SIZE);
                 page_count <= object_page_count
             })
             .cloned()?;
@@ -566,7 +570,7 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
         end_addr: usize,
     ) -> Option<ObjectHandle<HW>> {
         let range_size = end_addr.checked_sub(start_addr)?.checked_add(1)?;
-        let page_count = klib::miscmath::size_to_blocks(range_size, HW::PAGE_SIZE);
+        let page_count = toolbox::miscmath::size_to_blocks(range_size, HW::PAGE_SIZE);
         assert_ne!(page_count, 0);
         let rounded_size = page_count.checked_mul(HW::PAGE_SIZE)?;
         let end_addr = start_addr.checked_add(rounded_size.checked_sub(1)?)?;
@@ -593,7 +597,7 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
             new_size, 0,
             "cannot add an empty object to an address space"
         );
-        assert!(klib::miscmath::is_aligned(new_size, HW::PAGE_SIZE));
+        assert!(toolbox::miscmath::is_aligned(new_size, HW::PAGE_SIZE));
         let new_end = new_start
             .checked_add(new_size - 1)
             .expect("object address range overflow");
@@ -616,7 +620,7 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
             .insert(insert_pos, object.clone());
     }
     fn find_avail_object_in_uncommitted(&self, addr: usize) -> Option<UncommittedObjectHandle<HW>> {
-        let page_base = klib::miscmath::align_usize_down(addr, HW::PAGE_SIZE);
+        let page_base = toolbox::miscmath::align_usize_down(addr, HW::PAGE_SIZE);
         self.uncommitted_objects
             .iter()
             .find(|uobject_h| {
@@ -629,20 +633,20 @@ impl<HW: klib::hal::Hardware> AddressSpace<HW> {
 }
 
 #[derive(Default, Clone, Copy)]
-pub struct MapFlags {
-    pub read: bool,
-    pub write: bool,
-    pub exec: bool,
-    pub no_cache: bool,
+pub(crate) struct MapFlags {
+    pub(crate) read: bool,
+    pub(crate) write: bool,
+    pub(crate) exec: bool,
+    pub(crate) no_cache: bool,
 }
 
 #[repr(C)]
-pub struct Object<HW: klib::hal::Hardware> {
-    pub phys_base: Option<klib::PhysicalPtr>, // None means it allocates pages instead of mapping existing pages.
-    pub address_space: AddressSpaceHandle<HW>,
-    pub start: *mut u8,
-    pub size: usize,
-    pub flags: MapFlags,
+pub(in crate::klib) struct Object<HW: klib::hal::Hardware> {
+    pub(in crate::klib) phys_base: Option<klib::PhysicalPtr>, // None means it allocates pages instead of mapping existing pages.
+    pub(in crate::klib) address_space: AddressSpaceHandle<HW>,
+    pub(in crate::klib) start: *mut u8,
+    pub(in crate::klib) size: usize,
+    pub(in crate::klib) flags: MapFlags,
 }
 impl<HW: klib::hal::Hardware> Object<HW> {
     fn start_addr(&self) -> usize {
@@ -675,7 +679,7 @@ impl<HW: klib::hal::Hardware> Object<HW> {
         Ok(())
     }
 }
-pub type ObjectHandle<HW> = Rc<RefCell<Object<HW>>>;
+pub(in crate::klib) type ObjectHandle<HW> = Rc<RefCell<Object<HW>>>;
 fn create_object<HW: klib::hal::Hardware>(
     address_space: &AddressSpaceHandle<HW>,
     start: *mut u8,
@@ -695,7 +699,7 @@ fn create_object<HW: klib::hal::Hardware>(
 #[repr(C)]
 pub(in crate::klib) struct UncommittedObject<HW: klib::hal::Hardware> {
     object: ObjectHandle<HW>,
-    bitmap: Vec<klib::bitmap::Word>,
+    bitmap: Vec<toolbox::bitmap::Word>,
 }
 pub(in crate::klib) type UncommittedObjectHandle<HW> = Rc<RefCell<UncommittedObject<HW>>>;
 impl<HW: klib::hal::Hardware> UncommittedObject<HW> {
@@ -710,16 +714,16 @@ impl<HW: klib::hal::Hardware> UncommittedObject<HW> {
             .count()
     }
     fn is_page_uncommitted(&self, page_index: usize) -> bool {
-        let bits_per_word = klib::bitmap::Word::BITS as usize;
+        let bits_per_word = toolbox::bitmap::Word::BITS as usize;
         self.bitmap
             .get(page_index / bits_per_word)
             .is_some_and(|word| (word & (1 << (page_index % bits_per_word))) != 0)
     }
     fn mark_page_committed(&mut self, page_index: usize) {
-        klib::Bitmap(&mut self.bitmap[..]).clear_bit(page_index);
+        toolbox::Bitmap(&mut self.bitmap[..]).clear_bit(page_index);
     }
     fn has_uncommitted_pages(&mut self) -> bool {
-        klib::Bitmap(&mut self.bitmap[..])
+        toolbox::Bitmap(&mut self.bitmap[..])
             .find_first_set_bit(0)
             .is_some()
     }
@@ -728,9 +732,9 @@ fn create_uncommitted_object<HW: klib::hal::Hardware>(
     object: &ObjectHandle<HW>,
     page_count: usize,
 ) -> UncommittedObjectHandle<HW> {
-    let word_count = klib::bitmap::needed_word_count(page_count);
+    let word_count = toolbox::bitmap::needed_word_count(page_count);
     let mut bitmap_data = alloc::vec![0; word_count];
-    klib::Bitmap(&mut bitmap_data[..]).set_bits(0, page_count);
+    toolbox::Bitmap(&mut bitmap_data[..]).set_bits(0, page_count);
     Rc::new(RefCell::new(UncommittedObject {
         object: object.clone(),
         bitmap: bitmap_data,
@@ -1487,7 +1491,7 @@ mod tests {
             object.start_addr() + phys_base.addr() % PAGE_SIZE
         );
         assert_eq!(
-            klib::miscmath::size_to_blocks(size + phys_base.addr() % PAGE_SIZE, PAGE_SIZE),
+            toolbox::miscmath::size_to_blocks(size + phys_base.addr() % PAGE_SIZE, PAGE_SIZE),
             1,
             "the requested mapping fits in one physical page"
         );

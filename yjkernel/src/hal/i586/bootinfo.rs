@@ -73,7 +73,7 @@ struct MultibootMmapEntry {
     len: u64,
     typ: u32,
 }
-pub const MULTIBOOT_BOOTLOADER_MAGIC: u32 = 0x2BADB002;
+pub(in crate::hal) const MULTIBOOT_BOOTLOADER_MAGIC: u32 = 0x2BADB002;
 
 const MULTIBOOT_MEMORY_AVAILABLE: u32 = 1;
 const MULTIBOOT_MEMORY_RESERVED: u32 = 2;
@@ -97,7 +97,7 @@ const MULTIBOOT_INFO_FRAMEBUFFER_INFO: u32 = 1 << 12;
 
 /// # Safety
 /// The address must point to valid, aligned address provided by Multiboot compliant bootloader.
-pub unsafe fn process(
+pub(in crate::hal) unsafe fn process(
     mb_info_ptr: klib::PhysicalPtr,
     pmm: &mut klib::mem::PhysicalMemoryManager<super::Hardware>,
 ) {

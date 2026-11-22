@@ -44,7 +44,7 @@ fn irq_handler(_irq_num: u8) {
     }
 }
 
-pub fn init() {
+pub(in crate::hal) fn init() {
     super::pic::mask_irq(PIT_IRQ);
     let initial_counter = counter_from_millis(FREQ_MILLIS);
     super::HardwarePortIO::out8(

@@ -5,7 +5,7 @@
 use crate::{kglobals, klib::hal::Hardware, println};
 
 #[repr(C, align(4))]
-pub struct TrapFrame {
+pub(crate) struct TrapFrame {
     pub(super) gs: u32,
     pub(super) fs: u32,
     pub(super) es: u32,
@@ -29,7 +29,7 @@ pub struct TrapFrame {
     pub(super) ss_usermode: u32,
 }
 impl TrapFrame {
-    pub fn dump(&self) {
+    pub(in crate::hal) fn dump(&self) {
         println!(
             "eax={:08x} ebx={:08x} ecx={:08x} edx={:08x} esi={:08x} edi={:08x}",
             self.eax, self.ebx, self.ecx, self.edx, self.esi, self.edi
@@ -72,7 +72,7 @@ fn page_fault_handler(_trap_num: usize, trap_frame: *mut TrapFrame) {
     );
 }
 
-pub fn init() {
+pub(in crate::hal) fn init() {
     let globals = kglobals();
     let mut trap_manager = globals.trap_manager.lock();
     for i in 0..32 {

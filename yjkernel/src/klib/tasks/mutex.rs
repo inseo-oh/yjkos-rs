@@ -19,14 +19,17 @@ pub(super) struct RawMutex<HW> {
 }
 pub(super) type RawMutexHandle<HW> = Rc<RawMutex<HW>>;
 impl<HW: klib::hal::Hardware> RawMutex<HW> {
-    pub fn new() -> RawMutexHandle<HW> {
+    pub(in crate::klib) fn new() -> RawMutexHandle<HW> {
         Rc::new(Self {
             locked: AtomicBool::new(false),
             lock_source: Cell::new(source_location!()),
             _hw: PhantomData,
         })
     }
-    pub fn __try_lock(&self, loc: klib::diag::SourceLocation) -> Result<(), &'static str> {
+    pub(in crate::klib) fn __try_lock(
+        &self,
+        loc: klib::diag::SourceLocation,
+    ) -> Result<(), &'static str> {
         if self
             .locked
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -37,7 +40,7 @@ impl<HW: klib::hal::Hardware> RawMutex<HW> {
         self.lock_source.set(loc);
         Ok(())
     }
-    pub fn __lock_begin(
+    pub(in crate::klib) fn __lock_begin(
         self: &RawMutexHandle<HW>,
         sched: &klib::irq::Mutex<HW, klib::tasks::sched::Scheduler<HW>>,
         loc: klib::diag::SourceLocation,
@@ -54,31 +57,31 @@ impl<HW: klib::hal::Hardware> RawMutex<HW> {
             Err(switch)
         }
     }
-    pub fn unlock(&self) {
+    pub(in crate::klib) fn unlock(&self) {
         self.lock_source.set(source_location!());
         self.locked.store(false, Ordering::Release);
     }
 }
 
-pub struct Mutex<HW, T> {
+pub(in crate::klib) struct Mutex<HW, T> {
     raw_mutex_h: RawMutexHandle<HW>,
     data: UnsafeCell<T>,
 }
 impl<HW: klib::hal::Hardware, T> Mutex<HW, T> {
-    pub fn new(data: T) -> Self {
+    pub(in crate::klib) fn new(data: T) -> Self {
         Self {
             raw_mutex_h: RawMutex::new(),
             data: UnsafeCell::new(data),
         }
     }
-    pub fn __try_lock<'a>(
+    pub(in crate::klib) fn __try_lock<'a>(
         &'a self,
         loc: klib::diag::SourceLocation,
     ) -> Result<MutexGuard<'a, HW, T>, &'static str> {
         self.raw_mutex_h.__try_lock(loc)?;
         Ok(MutexGuard(self))
     }
-    pub fn __lock_begin(
+    pub(in crate::klib) fn __lock_begin(
         &self,
         sched: &klib::irq::Mutex<HW, klib::tasks::sched::Scheduler<HW>>,
         loc: klib::diag::SourceLocation,
@@ -86,14 +89,14 @@ impl<HW: klib::hal::Hardware, T> Mutex<HW, T> {
         self.raw_mutex_h.__lock_begin(sched, loc)
     }
     #[doc(hidden)]
-    pub fn __finish_lock(&self) -> MutexGuard<'_, HW, T> {
+    pub(in crate::klib) fn __finish_lock(&self) -> MutexGuard<'_, HW, T> {
         assert!(self.raw_mutex_h.locked.load(Ordering::Relaxed));
         MutexGuard(self)
     }
 }
 unsafe impl<HW: klib::hal::Hardware, T: Send> Sync for Mutex<HW, T> {}
 
-pub struct MutexGuard<'a, HW: klib::hal::Hardware, T>(&'a Mutex<HW, T>);
+pub(in crate::klib) struct MutexGuard<'a, HW: klib::hal::Hardware, T>(&'a Mutex<HW, T>);
 impl<'a, HW: klib::hal::Hardware, T> Deref for MutexGuard<'a, HW, T> {
     type Target = T;
 

@@ -412,7 +412,6 @@ impl Heap {
         }
         unsafe { self.realloc(ptr, new_size * new_elements) }
     }
-
 }
 
 impl Default for Heap {
@@ -501,7 +500,10 @@ mod tests {
         let mut memory = SmallMemory([0; 16]);
         let mut heap = new_heap();
 
-        let result = unsafe { heap.as_mut().add_mem(memory.0.as_mut_ptr(), memory.0.len(), 4096) };
+        let result = unsafe {
+            heap.as_mut()
+                .add_mem(memory.0.as_mut_ptr(), memory.0.len(), 4096)
+        };
 
         assert_eq!(result, Err("mem_size is too small"));
         assert_eq!(heap.as_ref().free_block_count, 0);

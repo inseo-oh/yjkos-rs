@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See LICENSE for details.
 
-pub mod shell;
-pub mod thread;
+pub(in crate::klib) mod shell;
+pub(in crate::klib) mod thread;
 
-pub use shell::Shell;
+pub(in crate::klib) use shell::Shell;
 
 #[derive(Clone, Copy)]
-pub struct SourceLocation {
-    pub file_name: &'static str,
-    pub module_path: &'static str,
-    pub line: u32,
+pub(in crate::klib) struct SourceLocation {
+    pub(in crate::klib) file_name: &'static str,
+    pub(in crate::klib) module_path: &'static str,
+    pub(in crate::klib) line: u32,
 }
 
 #[macro_export]

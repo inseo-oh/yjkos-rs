@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See LICENSE for details.
 
-pub mod mutex;
-pub mod process;
-pub mod sched;
-pub mod thread;
+pub(in crate::klib) mod mutex;
+pub(in crate::klib) mod process;
+pub(in crate::klib) mod sched;
+pub(crate) mod thread;
 
-pub use sched::Scheduler;
+pub(in crate::klib) use sched::Scheduler;

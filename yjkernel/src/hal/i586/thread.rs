@@ -5,7 +5,7 @@
 use crate::{klib, println};
 use alloc::boxed::Box;
 use core::slice;
-pub struct Thread {
+pub(crate) struct Thread {
     saved_esp: *mut u32,
     restore_with_iret: bool,
     // Keep the 4 KiB privilege-transition stack off the kernel call stack.
@@ -149,7 +149,7 @@ fn init_stack(
     }
 }
 
-pub fn create(
+pub(in crate::hal) fn create(
     init_stack_base: *mut u32,
     init_stack_size: usize,
     start: klib::hal::ThreadStart,
@@ -168,7 +168,11 @@ pub fn create(
     init_stack(init_stack_base, init_stack_size, start)
 }
 
-pub unsafe fn switch(from: *mut Thread, to: *mut Thread, reload_address_space: bool) {
+pub(in crate::hal) unsafe fn switch(
+    from: *mut Thread,
+    to: *mut Thread,
+    reload_address_space: bool,
+) {
     assert!(!from.is_null());
     assert!(!to.is_null());
     super::gdt::set_esp0(unsafe { &mut (*to).esp0_stack });

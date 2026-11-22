@@ -8,7 +8,7 @@ use core::cell::RefCell;
 use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-pub const THREAD_STACK_SIZE: usize = 1024 * 16;
+pub(in crate::klib) const THREAD_STACK_SIZE: usize = 1024 * 16;
 
 // This is only for testing, for now.
 static RETURNED_ENTRY_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -24,7 +24,7 @@ pub(crate) fn thread_entry_returned() -> ! {
     }
 }
 
-pub struct Thread<HW: klib::hal::Hardware> {
+pub(in crate::klib) struct Thread<HW: klib::hal::Hardware> {
     arch_thread: HW::Thread,
     process: Weak<RefCell<klib::tasks::process::Process<HW>>>,
     pub(super) waiting_mutex: Option<(
@@ -32,16 +32,16 @@ pub struct Thread<HW: klib::hal::Hardware> {
         klib::diag::SourceLocation,
     )>,
     pub(super) shutdown: bool,
-    pub stack_object: Option<klib::mem::vmm::ObjectHandle<HW>>,
-    pub kglobals: &'static KGlobals<HW>,
+    pub(in crate::klib) stack_object: Option<klib::mem::vmm::ObjectHandle<HW>>,
+    pub(in crate::klib) kglobals: &'static KGlobals<HW>,
 }
 
-pub type ThreadHandle<HW> = Rc<RefCell<Thread<HW>>>;
+pub(in crate::klib) type ThreadHandle<HW> = Rc<RefCell<Thread<HW>>>;
 
 impl<HW: klib::hal::Hardware> Thread<HW> {
     // Those init_ parameters are only valid for initial setup.
     // This of course applies to any new thread, but the boot thread is exception: It's thread for already running code.
-    pub fn new(
+    pub(in crate::klib) fn new(
         kglobals: &'static KGlobals<HW>,
         process: &klib::tasks::process::ProcessHandle<HW>,
         init_stack_size: usize,
@@ -70,7 +70,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
                 },
             )?;
             if is_user_process {
-                let page_count = klib::miscmath::size_to_blocks(init_stack_size, HW::PAGE_SIZE);
+                let page_count = toolbox::miscmath::size_to_blocks(init_stack_size, HW::PAGE_SIZE);
                 let allocation = match kglobals.pmm.lock().malloc(page_count) {
                     Ok(allocation) => allocation,
                     Err(error) => {
@@ -180,7 +180,7 @@ impl<HW: klib::hal::Hardware> Thread<HW> {
         // switches stacks without touching these heap-resident thread objects.
         unsafe { HW::thread_switch(from_arch, to_arch, reload_address_space) };
     }
-    pub fn process(&self) -> klib::tasks::process::ProcessHandle<HW> {
+    pub(in crate::klib) fn process(&self) -> klib::tasks::process::ProcessHandle<HW> {
         self.process.upgrade().expect("process no longer exists")
     }
 }

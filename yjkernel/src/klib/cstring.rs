@@ -9,7 +9,7 @@
 /// `dst` must be valid for writes of `n` bytes, unless `n` is zero.
 #[allow(suspicious_runtime_symbol_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn memset(dst: *mut u8, value: i32, n: usize) -> *mut u8 {
+pub(in crate::klib) unsafe extern "C" fn memset(dst: *mut u8, value: i32, n: usize) -> *mut u8 {
     for offset in 0..n {
         // Volatile accesses prevent LLVM from lowering this implementation back
         // into a call to the `memset` symbol itself.
@@ -23,7 +23,7 @@ pub unsafe extern "C" fn memset(dst: *mut u8, value: i32, n: usize) -> *mut u8 {
 /// `n` is zero. The regions must not overlap.
 #[allow(suspicious_runtime_symbol_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
+pub(in crate::klib) unsafe extern "C" fn memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
     for offset in 0..n {
         // Volatile accesses prevent LLVM from lowering this implementation back
         // into a call to the `memcpy` symbol itself.
@@ -38,7 +38,11 @@ pub unsafe extern "C" fn memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut 
 /// respectively, unless `n` is zero. The regions may overlap.
 #[allow(suspicious_runtime_symbol_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
+pub(in crate::klib) unsafe extern "C" fn memmove(
+    dst: *mut u8,
+    src: *const u8,
+    n: usize,
+) -> *mut u8 {
     let dst_addr = dst.addr();
     let src_addr = src.addr();
 
@@ -61,7 +65,7 @@ pub unsafe extern "C" fn memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut
 /// `lhs` and `rhs` must be valid for reads of `n` bytes, unless `n` is zero.
 #[allow(suspicious_runtime_symbol_definitions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn memcmp(lhs: *const u8, rhs: *const u8, n: usize) -> i32 {
+pub(in crate::klib) unsafe extern "C" fn memcmp(lhs: *const u8, rhs: *const u8, n: usize) -> i32 {
     for offset in 0..n {
         let lhs_byte = unsafe { lhs.add(offset).read_volatile() };
         let rhs_byte = unsafe { rhs.add(offset).read_volatile() };

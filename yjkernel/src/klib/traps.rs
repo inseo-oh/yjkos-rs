@@ -6,10 +6,10 @@ use crate::klib;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-pub type TrapCallback<HW> =
+pub(in crate::klib) type TrapCallback<HW> =
     fn(trap_num: usize, trap_frame: *mut <HW as klib::hal::Hardware>::TrapFrame);
 
-pub struct TrapHandler<HW: klib::hal::Hardware> {
+pub(in crate::klib) struct TrapHandler<HW: klib::hal::Hardware> {
     callback: TrapCallback<HW>,
 }
 
@@ -20,22 +20,22 @@ impl<HW: klib::hal::Hardware> Clone for TrapHandler<HW> {
     }
 }
 
-pub const TRAP_COUNT: usize = 256;
+pub(in crate::klib) const TRAP_COUNT: usize = 256;
 
-pub struct TrapManager<HW: klib::hal::Hardware> {
+pub(crate) struct TrapManager<HW: klib::hal::Hardware> {
     traps: [Vec<TrapHandler<HW>>; TRAP_COUNT],
     _hw: PhantomData<HW>,
 }
 
 impl<HW: klib::hal::Hardware> TrapManager<HW> {
-    pub const fn new() -> Self {
+    pub(in crate::klib) const fn new() -> Self {
         Self {
             traps: [const { Vec::new() }; TRAP_COUNT],
             _hw: PhantomData,
         }
     }
 
-    pub fn register_trap(
+    pub(crate) fn register_trap(
         &mut self,
         trap_num: usize,
         callback: TrapCallback<HW>,
@@ -47,18 +47,18 @@ impl<HW: klib::hal::Hardware> TrapManager<HW> {
         self.traps[trap_num].push(TrapHandler { callback });
         Ok(())
     }
-    pub fn handler_count(&self, trap_num: usize) -> usize {
+    pub(crate) fn handler_count(&self, trap_num: usize) -> usize {
         assert!(!HW::irq_enabled());
         self.traps.get(trap_num).map_or(0, Vec::len)
     }
-    pub fn handler_at(&self, trap_num: usize, index: usize) -> Option<TrapCallback<HW>> {
+    pub(crate) fn handler_at(&self, trap_num: usize, index: usize) -> Option<TrapCallback<HW>> {
         assert!(!HW::irq_enabled());
         self.traps
             .get(trap_num)
             .and_then(|handlers| handlers.get(index))
             .map(|handler| handler.callback)
     }
-    pub fn trap(&self, trap_num: usize, trapframe: *mut HW::TrapFrame) {
+    pub(in crate::klib) fn trap(&self, trap_num: usize, trapframe: *mut HW::TrapFrame) {
         assert!(!HW::irq_enabled());
         let handler_count = self.handler_count(trap_num);
         for index in 0..handler_count {

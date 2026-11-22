@@ -21,6 +21,8 @@ Because the binaries are `no_std` and use custom targets, prefer the Makefile co
 
 Follow standard Rust formatting: four-space indentation, `snake_case` for functions/modules, `UpperCamelCase` for types, and `SCREAMING_SNAKE_CASE` for constants. Run `cargo +nightly fmt --all -- --check` before submitting. Keep hardware-specific code under `yjkernel/src/hal/i586/`; place shared kernel facilities under `yjkernel/src/klib/`. Preserve the existing copyright and SPDX headers in source files.
 
+Keep Rust items private by default and expose them only as far as their callers require. Use `pub(super)` or `pub(in crate::...)` for module-scoped access, and `pub(crate)` for access across the crate. Use plain `pub` only for an intentional external API.
+
 ## Testing
 
 There is no standalone test framework configured for the OS binaries. For changes affecting kernel or syscall behavior, build with `make`, boot with `make run`, and inspect kernel/user output for failures. Utility crates may gain Rust unit tests where they can run on the host, but target-specific paths should also be checked with the matching Makefile build.

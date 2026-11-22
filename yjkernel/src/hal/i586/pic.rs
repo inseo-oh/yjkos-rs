@@ -73,23 +73,23 @@ fn check_spurious_irq(irq: u8) -> bool {
     false
 }
 
-pub fn send_eoi(irq: u8) {
+pub(in crate::hal) fn send_eoi(irq: u8) {
     if irq >= IRQS_PER_PIC {
         super::HardwarePortIO::out8(CMD_PORT_SLAVE, CMD_EOI);
     }
     super::HardwarePortIO::out8(CMD_PORT_MASTER, CMD_EOI);
 }
 
-pub fn is_irq_masked(irq: u8) -> bool {
+pub(in crate::hal) fn is_irq_masked(irq: u8) -> bool {
     (get_irq_mask() & (1 << irq)) != 0
 }
 
-pub fn mask_irq(irq: u8) {
+pub(in crate::hal) fn mask_irq(irq: u8) {
     let _irq_disable = klib::irq::DisableGuard::<super::Hardware>::lock();
     set_irq_mask(get_irq_mask() | (1 << irq));
 }
 
-pub fn unmask_irq(irq: u8) {
+pub(in crate::hal) fn unmask_irq(irq: u8) {
     let _irq_disable = klib::irq::DisableGuard::<super::Hardware>::lock();
     set_irq_mask(get_irq_mask() & !(1 << irq));
 }
@@ -116,7 +116,7 @@ fn default_irq_handler(trap_num: usize, _trap_frame: *mut super::traps::TrapFram
     }
 }
 
-pub fn init(trap_manager: &mut klib::traps::TrapManager<super::Hardware>) {
+pub(in crate::hal) fn init(trap_manager: &mut klib::traps::TrapManager<super::Hardware>) {
     // ICW1 ====================================================================
     super::HardwarePortIO::out8(CMD_PORT_MASTER, PIC_ICW1_FLAG_INIT | PIC_ICW1_FLAG_ICW4);
     super::HardwarePortIO::out8(CMD_PORT_SLAVE, PIC_ICW1_FLAG_INIT | PIC_ICW1_FLAG_ICW4);
@@ -145,7 +145,10 @@ pub fn init(trap_manager: &mut klib::traps::TrapManager<super::Hardware>) {
     set_irq_mask(!(1 << 2));
 }
 
-pub fn register_handler(irq_num: u8, callback: fn(irq_num: u8)) -> Result<(), &'static str> {
+pub(in crate::hal) fn register_handler(
+    irq_num: u8,
+    callback: fn(irq_num: u8),
+) -> Result<(), &'static str> {
     if IRQS_TOTAL <= irq_num {
         return Err("IRQ number is outside of range");
     }

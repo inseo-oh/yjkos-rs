@@ -5,12 +5,12 @@
 use crate::klib;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-pub struct AllocatedPageInfo {
-    pub base: klib::PhysicalPtr,
-    pub page_count: usize,
+pub(crate) struct AllocatedPageInfo {
+    pub(crate) base: klib::PhysicalPtr,
+    pub(crate) page_count: usize,
 }
 pub(in crate::klib) struct PagePool<HW> {
-    bitmap: Vec<klib::bitmap::Word>,
+    bitmap: Vec<toolbox::bitmap::Word>,
     base_addr: klib::PhysicalPtr,
     page_count: usize,
     _hw: PhantomData<HW>,
@@ -52,7 +52,7 @@ impl<HW: klib::hal::Hardware> PagePool<HW> {
         let found_block_index;
         loop {
             let (bit_start, bit_end) = bit_indices_range_for_level(found_level);
-            let found_at = klib::Bitmap(&mut self.bitmap[..]).find_set_bits(bit_start, 1);
+            let found_at = toolbox::Bitmap(&mut self.bitmap[..]).find_set_bits(bit_start, 1);
             if let Some(found_at) = found_at
                 && found_at <= bit_end
             {
@@ -72,18 +72,18 @@ impl<HW: klib::hal::Hardware> PagePool<HW> {
         while current_level < wanted_level {
             // Mark current one as unavilable ==================================
             let bit_index = bit_index_for_page_pool_block(current_level, current_block_index);
-            klib::Bitmap(&mut self.bitmap[..]).clear_bit(bit_index);
+            toolbox::Bitmap(&mut self.bitmap[..]).clear_bit(bit_index);
             // Mark upper block's second block as available. ===================
             // (First block will be marked as unavailable next time, so don't touch that)
             let bit_index =
                 bit_index_for_page_pool_block(current_level + 1, (current_block_index * 2) + 1);
-            klib::Bitmap(&mut self.bitmap[..]).set_bit(bit_index);
+            toolbox::Bitmap(&mut self.bitmap[..]).set_bit(bit_index);
             current_level += 1;
             current_block_index *= 2;
         }
         // Mark resulting block as unavailable =================================
         let bit_index = bit_index_for_page_pool_block(wanted_level, current_block_index);
-        klib::Bitmap(&mut self.bitmap[..]).clear_bit(bit_index);
+        toolbox::Bitmap(&mut self.bitmap[..]).clear_bit(bit_index);
         Some(AllocatedPageInfo {
             base: self
                 .base_addr
@@ -118,7 +118,7 @@ impl<HW: klib::hal::Hardware> PagePool<HW> {
                 index /= 2;
                 let parent_bit = bit_index_for_page_pool_block(level, index);
                 assert!(
-                    !klib::Bitmap(&mut self.bitmap[..]).is_bit_set(parent_bit),
+                    !toolbox::Bitmap(&mut self.bitmap[..]).is_bit_set(parent_bit),
                     "block is already free in an ancestor"
                 );
             }
@@ -126,9 +126,9 @@ impl<HW: klib::hal::Hardware> PagePool<HW> {
         loop {
             // Mark it as available ============================================
             let bit_index = bit_index_for_page_pool_block(current_level, current_block_index);
-            assert!(!klib::Bitmap(&mut self.bitmap[..]).is_bit_set(bit_index));
+            assert!(!toolbox::Bitmap(&mut self.bitmap[..]).is_bit_set(bit_index));
 
-            klib::Bitmap(&mut self.bitmap[..]).set_bit(bit_index);
+            toolbox::Bitmap(&mut self.bitmap[..]).set_bit(bit_index);
             if current_level == 0 {
                 // No lower levels
                 break;
@@ -139,13 +139,13 @@ impl<HW: klib::hal::Hardware> PagePool<HW> {
             } else {
                 bit_index - 1
             };
-            if !klib::Bitmap(&mut self.bitmap[..]).is_bit_set(neighbor_bit_index) {
+            if !toolbox::Bitmap(&mut self.bitmap[..]).is_bit_set(neighbor_bit_index) {
                 // Neighbor is in use; No further action is needed.
                 break;
             }
             // Combine with neighbor block, and move to lower level. ===========
-            klib::Bitmap(&mut self.bitmap[..]).clear_bit(bit_index);
-            klib::Bitmap(&mut self.bitmap[..]).clear_bit(neighbor_bit_index);
+            toolbox::Bitmap(&mut self.bitmap[..]).clear_bit(bit_index);
+            toolbox::Bitmap(&mut self.bitmap[..]).clear_bit(neighbor_bit_index);
             current_level -= 1;
             current_block_index /= 2;
         }
@@ -230,11 +230,11 @@ const fn bit_index_for_page_pool_block(level: usize, block: usize) -> usize {
 // 2. If neighbor block is also available, mark both blocks as unavailable, decrease level, and mark
 //    the corresponding block as available.
 // 3. Repeat 2 until neighbor is not marked as available, or there is no neighbor(i.e. The first level).
-pub struct PhysicalMemoryManager<HW: klib::hal::Hardware> {
+pub(crate) struct PhysicalMemoryManager<HW: klib::hal::Hardware> {
     pools: Vec<PagePool<HW>>,
 }
 impl<HW: klib::hal::Hardware> PhysicalMemoryManager<HW> {
-    pub const fn new() -> Self {
+    pub(in crate::klib) const fn new() -> Self {
         Self { pools: Vec::new() }
     }
 
@@ -247,7 +247,7 @@ impl<HW: klib::hal::Hardware> PhysicalMemoryManager<HW> {
     /// - Points to non-reserved physical RAM, and not used by anyone else.
     /// - Must not overlap with existing registered pages.
     /// - Must be aligned to page boundary.
-    pub unsafe fn register_mem(
+    pub(crate) unsafe fn register_mem(
         &mut self,
         base: klib::PhysicalPtr,
         page_count: usize,
@@ -263,13 +263,13 @@ impl<HW: klib::hal::Hardware> PhysicalMemoryManager<HW> {
         let mut remaining_page_count = page_count;
         while remaining_page_count != 0 {
             let page_pool_sizes = calculate_page_pool_sizes(remaining_page_count);
-            let word_count = klib::bitmap::needed_word_count(page_pool_sizes.bit_count);
+            let word_count = toolbox::bitmap::needed_word_count(page_pool_sizes.bit_count);
             let mut bitmap = Vec::new();
             bitmap
                 .try_reserve_exact(word_count)
                 .map_err(|_| "unable to allocate metadata memory")?;
             bitmap.resize(word_count, 0);
-            klib::Bitmap(&mut bitmap[..]).set_bit(0);
+            toolbox::Bitmap(&mut bitmap[..]).set_bit(0);
 
             new_pools
                 .try_reserve(1)
@@ -298,7 +298,7 @@ impl<HW: klib::hal::Hardware> PhysicalMemoryManager<HW> {
         Ok(())
     }
 
-    pub fn malloc(&mut self, page_count: usize) -> Result<AllocatedPageInfo, &'static str> {
+    pub(crate) fn malloc(&mut self, page_count: usize) -> Result<AllocatedPageInfo, &'static str> {
         if page_count == 0 {
             return Err("page count must be nonzero");
         }
@@ -313,7 +313,7 @@ impl<HW: klib::hal::Hardware> PhysicalMemoryManager<HW> {
 
     /// # Safety
     /// Caller must guarantee that memory pointed by alloc points to allocation returned by malloc, and not free()d yet.ß
-    pub unsafe fn free(&mut self, alloc: AllocatedPageInfo) {
+    pub(in crate::klib) unsafe fn free(&mut self, alloc: AllocatedPageInfo) {
         assert!(!alloc.base.is_null());
         assert!(alloc.page_count != 0);
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
@@ -338,7 +338,7 @@ impl<HW: klib::hal::Hardware> PhysicalMemoryManager<HW> {
         }
         panic!("physical page allocation does not belong to any pool");
     }
-    pub fn get_total_mem_size(&self) -> usize {
+    pub(in crate::klib) fn get_total_mem_size(&self) -> usize {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         let page_count = self.pools.iter().fold(0usize, |total, pool| {
             total
@@ -370,9 +370,9 @@ mod tests {
 
     fn new_pool_at(page_count: usize, base_addr: klib::PhysicalPtr) -> PagePool<klib::hal::TestHW> {
         let sizes = calculate_page_pool_sizes(page_count);
-        let word_count = klib::bitmap::needed_word_count(sizes.bit_count);
+        let word_count = toolbox::bitmap::needed_word_count(sizes.bit_count);
         let mut bitmap = alloc::vec![0; word_count];
-        klib::Bitmap(&mut bitmap[..]).set_bit(0);
+        toolbox::Bitmap(&mut bitmap[..]).set_bit(0);
         PagePool {
             bitmap,
             base_addr,

@@ -8,7 +8,7 @@ use crate::klib;
 
 fn pmemcpy_in<HW: klib::hal::Hardware>(dest: *mut u8, src: usize, len: usize, cache_inhibit: bool) {
     let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-    let mut src_page = klib::miscmath::align_usize_down(src, HW::PAGE_SIZE);
+    let mut src_page = toolbox::miscmath::align_usize_down(src, HW::PAGE_SIZE);
     let mut offset = src - src_page;
     let mut dest_byte = dest;
     let mut copy_len;
@@ -37,7 +37,7 @@ fn pmemcpy_out<HW: klib::hal::Hardware>(
     cache_inhibit: bool,
 ) {
     let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-    let mut dest_page = klib::miscmath::align_usize_down(dest, HW::PAGE_SIZE);
+    let mut dest_page = toolbox::miscmath::align_usize_down(dest, HW::PAGE_SIZE);
     let mut offset = dest - dest_page;
     let mut src_byte = src;
     let mut copy_len;
@@ -65,26 +65,26 @@ fn pmemcpy_out<HW: klib::hal::Hardware>(
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PhysicalPtr(usize);
+pub(crate) struct PhysicalPtr(usize);
 
 /// Most APIs have similar behavior to `*mut u8`'s methods, with exception being read/write methods.
 impl PhysicalPtr {
-    pub const fn new(addr: usize) -> Self {
+    pub(crate) const fn new(addr: usize) -> Self {
         Self(addr)
     }
-    pub const fn addr(self) -> usize {
+    pub(crate) const fn addr(self) -> usize {
         self.0
     }
 
-    pub fn checked_add(self, bytes: usize) -> Option<Self> {
+    pub(crate) fn checked_add(self, bytes: usize) -> Option<Self> {
         self.0.checked_add(bytes).map(Self)
     }
 
-    pub fn checked_sub(self, bytes: usize) -> Option<Self> {
+    pub(in crate::klib) fn checked_sub(self, bytes: usize) -> Option<Self> {
         self.0.checked_sub(bytes).map(Self)
     }
 
-    pub fn checked_distance_from(self, origin: Self) -> Option<usize> {
+    pub(crate) fn checked_distance_from(self, origin: Self) -> Option<usize> {
         self.0.checked_sub(origin.0)
     }
 
@@ -100,55 +100,55 @@ impl PhysicalPtr {
             .expect("PhysicalPtr address range overflow")
     }
 
-    pub fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Self {
+    pub(in crate::klib) fn map_addr(self, f: impl FnOnce(usize) -> usize) -> Self {
         Self(f(self.addr()))
     }
     /// # Safety
     /// The resulting range must remain within the physical allocation the
     /// caller intends to access.
-    pub const unsafe fn offset(self, count: isize) -> Self {
+    pub(in crate::klib) const unsafe fn offset(self, count: isize) -> Self {
         Self(self.0.strict_add_signed(count))
     }
 
-    pub const fn wrapping_offset(self, count: isize) -> Self {
+    pub(in crate::klib) const fn wrapping_offset(self, count: isize) -> Self {
         Self(self.0.wrapping_add_signed(count))
     }
     /// # Safety
     /// The distance between these addresses must fit in `isize`.
-    pub const unsafe fn offset_from(self, origin: Self) -> isize {
+    pub(in crate::klib) const unsafe fn offset_from(self, origin: Self) -> isize {
         self.0.wrapping_sub(origin.0) as isize
     }
 
     /// # Safety
     /// `self` must be at or after `origin` in the physical address space.
-    pub unsafe fn offset_from_unsigned(self, origin: Self) -> usize {
+    pub(in crate::klib) unsafe fn offset_from_unsigned(self, origin: Self) -> usize {
         // SAFETY: The caller guarantees the subtraction is nonnegative.
         unsafe { self.0.checked_sub(origin.0).unwrap_unchecked() }
     }
     /// # Safety
     /// The resulting address must remain within the physical allocation the
     /// caller intends to access.
-    pub const unsafe fn add(self, count: usize) -> Self {
+    pub(crate) const unsafe fn add(self, count: usize) -> Self {
         Self(self.0 + count)
     }
 
     /// # Safety
     /// The resulting address must remain within the physical allocation the
     /// caller intends to access.
-    pub const unsafe fn sub(self, count: usize) -> Self {
+    pub(in crate::klib) const unsafe fn sub(self, count: usize) -> Self {
         Self(self.0 - count)
     }
-    pub const fn wrapping_add(self, count: usize) -> Self {
+    pub(in crate::klib) const fn wrapping_add(self, count: usize) -> Self {
         Self(self.0.wrapping_add(count))
     }
-    pub const fn wrapping_sub(self, count: usize) -> Self {
+    pub(in crate::klib) const fn wrapping_sub(self, count: usize) -> Self {
         Self(self.0.wrapping_sub(count))
     }
     /// # Safety
     /// The address must be valid and aligned for `T`, and its bytes must encode
     /// a valid `T`. Treat the source as uninitialized after this move if `T`
     /// is not `Copy`.
-    pub unsafe fn read<HW: klib::hal::Hardware, T>(self, cache_inhibit: bool) -> T {
+    pub(crate) unsafe fn read<HW: klib::hal::Hardware, T>(self, cache_inhibit: bool) -> T {
         self.checked_end(size_of::<T>());
         let mut value = MaybeUninit::<T>::uninit();
         pmemcpy_in::<HW>(
@@ -163,7 +163,7 @@ impl PhysicalPtr {
     /// Both ranges must be valid for `count` aligned, initialized `T` values;
     /// `dest` must be writable. `T` must be `Copy` so this byte copy does not
     /// duplicate ownership of a non-`Copy` value.
-    pub unsafe fn copy_to_virtual<HW: klib::hal::Hardware, T: Copy>(
+    pub(in crate::klib) unsafe fn copy_to_virtual<HW: klib::hal::Hardware, T: Copy>(
         self,
         dest: *mut T,
         count: usize,
@@ -176,7 +176,7 @@ impl PhysicalPtr {
     /// # Safety
     /// Both physical ranges must be valid and aligned for `count` initialized
     /// `T` values. `T` must be `Copy`.
-    pub unsafe fn copy_to_physical<HW: klib::hal::Hardware, T: Copy>(
+    pub(in crate::klib) unsafe fn copy_to_physical<HW: klib::hal::Hardware, T: Copy>(
         self,
         dest: PhysicalPtr,
         count: usize,
@@ -202,21 +202,25 @@ impl PhysicalPtr {
             }
         }
     }
-    pub fn align_offset(self, align: usize) -> usize {
+    pub(crate) fn align_offset(self, align: usize) -> usize {
         assert!(align.is_power_of_two());
         self.0.wrapping_neg() & (align - 1)
     }
-    pub fn is_aligned<T>(self) -> bool {
+    pub(in crate::klib) fn is_aligned<T>(self) -> bool {
         self.align_offset(align_of::<T>()) == 0
     }
-    pub const fn is_null(self) -> bool {
+    pub(crate) const fn is_null(self) -> bool {
         self.0 == 0
     }
     /// # Safety
     /// The address must be valid and aligned for `T`. The caller becomes
     /// responsible for the value's lifetime in physical memory, including
     /// eventually reading and dropping it if `T` needs drop.
-    pub unsafe fn write<HW: klib::hal::Hardware, T>(self, value: T, cache_inhibit: bool) {
+    pub(in crate::klib) unsafe fn write<HW: klib::hal::Hardware, T>(
+        self,
+        value: T,
+        cache_inhibit: bool,
+    ) {
         self.checked_end(size_of::<T>());
         let value = ManuallyDrop::new(value);
         let ptr = (&value as *const ManuallyDrop<T>).cast::<T>();
@@ -227,7 +231,7 @@ impl PhysicalPtr {
     /// `from` must be valid, aligned, and readable for `count` initialized
     /// `T` values. The physical destination must be valid and aligned for the
     /// same range. `T` must be `Copy`.
-    pub unsafe fn copy_from_virtual<HW: klib::hal::Hardware, T: Copy>(
+    pub(in crate::klib) unsafe fn copy_from_virtual<HW: klib::hal::Hardware, T: Copy>(
         self,
         from: *const T,
         count: usize,
@@ -245,7 +249,7 @@ impl PhysicalPtr {
     /// # Safety
     /// Both physical ranges must be valid and aligned for `count` initialized
     /// `T` values. `T` must be `Copy`.
-    pub unsafe fn copy_from_physical<HW: klib::hal::Hardware, T: Copy>(
+    pub(in crate::klib) unsafe fn copy_from_physical<HW: klib::hal::Hardware, T: Copy>(
         self,
         from: PhysicalPtr,
         count: usize,
@@ -257,7 +261,7 @@ impl PhysicalPtr {
 
     /// # Safety
     /// The physical range `[self, self + count)` must be writable.
-    pub unsafe fn write_bytes<HW: klib::hal::Hardware>(
+    pub(in crate::klib) unsafe fn write_bytes<HW: klib::hal::Hardware>(
         self,
         val: u8,
         count: usize,
@@ -265,7 +269,7 @@ impl PhysicalPtr {
     ) {
         self.checked_end(count);
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
-        let mut dest_page = klib::miscmath::align_usize_down(self.addr(), HW::PAGE_SIZE);
+        let mut dest_page = toolbox::miscmath::align_usize_down(self.addr(), HW::PAGE_SIZE);
         let mut offset = self.addr() - dest_page;
         let mut copy_len;
         let mut i = 0;

@@ -22,7 +22,7 @@ mod usermode;
 use crate::klib;
 use core::arch::asm;
 
-pub static SERIAL: klib::irq::Mutex<
+pub(in crate::hal) static SERIAL: klib::irq::Mutex<
     Hardware,
     klib::devlib::serial_i8250::SerialI8250<HardwarePortIO>,
 > = klib::irq::Mutex::new(klib::devlib::serial_i8250::SerialI8250::new(0x3f8, 115200));
@@ -44,7 +44,7 @@ fn read_serial() -> char {
 static SERIAL_WRITER: klib::console::ConsoleWriter = write_serial;
 static SERIAL_READER: klib::console::ConsoleReader = read_serial;
 
-pub struct HardwarePortIO;
+pub(in crate::hal) struct HardwarePortIO;
 impl klib::devlib::HardwarePortIO for HardwarePortIO {
     fn in8(port: u16) -> u8 {
         unsafe { ioport::in8(port) }
@@ -55,7 +55,7 @@ impl klib::devlib::HardwarePortIO for HardwarePortIO {
     }
 }
 
-pub struct Hardware;
+pub(crate) struct Hardware;
 impl klib::hal::Hardware for Hardware {
     // IRQ control =============================================================
     fn irq_enabled() -> bool {
@@ -185,7 +185,7 @@ impl klib::hal::Hardware for Hardware {
 const EFLAGS_FLAG_IF: u32 = 1 << 9;
 
 #[inline]
-pub fn get_eflags() -> u32 {
+pub(in crate::hal) fn get_eflags() -> u32 {
     let flags: u32;
 
     unsafe {
@@ -200,28 +200,28 @@ pub fn get_eflags() -> u32 {
 }
 
 #[inline]
-pub unsafe fn cli() {
+pub(in crate::hal) unsafe fn cli() {
     unsafe {
         asm!("cli", options(nomem, nostack, preserves_flags));
     }
 }
 
 #[inline]
-pub unsafe fn sti() {
+pub(in crate::hal) unsafe fn sti() {
     unsafe {
         asm!("sti", options(nomem, nostack, preserves_flags));
     }
 }
 
 #[inline]
-pub unsafe fn hlt() {
+pub(in crate::hal) unsafe fn hlt() {
     unsafe {
         asm!("hlt", options(nomem, nostack, preserves_flags));
     }
 }
 
 #[inline]
-pub fn rdtsc() -> u64 {
+pub(in crate::hal) fn rdtsc() -> u64 {
     let low: u32;
     let high: u32;
 
@@ -238,7 +238,7 @@ pub fn rdtsc() -> u64 {
 }
 
 #[inline]
-pub unsafe fn invlpg(address: usize) {
+pub(in crate::hal) unsafe fn invlpg(address: usize) {
     unsafe {
         asm!(
             "invlpg [{addr}]",
@@ -250,7 +250,7 @@ pub unsafe fn invlpg(address: usize) {
 
 #[inline]
 #[allow(unused)]
-pub unsafe fn reload_cr3() {
+pub(in crate::hal) unsafe fn reload_cr3() {
     let value: u32;
 
     unsafe {
@@ -264,7 +264,7 @@ pub unsafe fn reload_cr3() {
 }
 
 #[inline]
-pub fn read_cr0() -> u32 {
+pub(in crate::hal) fn read_cr0() -> u32 {
     let cr0: u32;
 
     unsafe {
@@ -278,7 +278,7 @@ pub fn read_cr0() -> u32 {
 }
 
 #[inline]
-pub fn read_cr2() -> u32 {
+pub(in crate::hal) fn read_cr2() -> u32 {
     let cr2: u32;
 
     unsafe {

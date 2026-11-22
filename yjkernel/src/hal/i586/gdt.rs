@@ -109,7 +109,7 @@ const ESP0_STACK_SIZE: usize = 4096;
 #[repr(C, align(16))]
 pub(super) struct ESP0Stack([u8; ESP0_STACK_SIZE]);
 impl ESP0Stack {
-    pub const fn new() -> Self {
+    pub(in crate::hal) const fn new() -> Self {
         Self([0; ESP0_STACK_SIZE])
     }
 }
@@ -332,8 +332,8 @@ pub(super) unsafe fn reload_selectors() {
     }
 }
 
-pub const GDT_KERNEL_CS: u16 = offset_of!(GlobalDescriptorTable, kernel_code) as u16;
-pub const GDT_KERNEL_DS: u16 = offset_of!(GlobalDescriptorTable, kernel_data) as u16;
-pub const GDT_USER_CS: u16 = offset_of!(GlobalDescriptorTable, user_code) as u16 | 3;
-pub const GDT_USER_DS: u16 = offset_of!(GlobalDescriptorTable, user_data) as u16 | 3;
-pub const GDT_TSS: u16 = offset_of!(GlobalDescriptorTable, tss) as u16;
+pub(in crate::hal) const GDT_KERNEL_CS: u16 = offset_of!(GlobalDescriptorTable, kernel_code) as u16;
+pub(in crate::hal) const GDT_KERNEL_DS: u16 = offset_of!(GlobalDescriptorTable, kernel_data) as u16;
+pub(in crate::hal) const GDT_USER_CS: u16 = offset_of!(GlobalDescriptorTable, user_code) as u16 | 3;
+pub(in crate::hal) const GDT_USER_DS: u16 = offset_of!(GlobalDescriptorTable, user_data) as u16 | 3;
+pub(in crate::hal) const GDT_TSS: u16 = offset_of!(GlobalDescriptorTable, tss) as u16;

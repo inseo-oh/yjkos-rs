@@ -4,14 +4,17 @@
 
 use crate::klib;
 
-pub fn decode_syscall_args(
+pub(in crate::hal) fn decode_syscall_args(
     trap_frame: *mut super::traps::TrapFrame,
 ) -> [u32; klib::syscall::SYSCALL_MAX_PARAM_COUNT] {
     let tfr = unsafe { trap_frame.as_ref().unwrap() };
     [tfr.eax, tfr.ebx, tfr.ecx, tfr.edx, tfr.edi]
 }
 
-pub fn prepare_syscall_return(result: u32, trap_frame: *mut super::traps::TrapFrame) {
+pub(in crate::hal) fn prepare_syscall_return(
+    result: u32,
+    trap_frame: *mut super::traps::TrapFrame,
+) {
     let tfr = unsafe { trap_frame.as_mut().unwrap() };
     tfr.eax = result;
 }

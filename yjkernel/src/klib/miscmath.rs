@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See LICENSE for details.
 
-pub const fn is_aligned(x: usize, align: usize) -> bool {
+pub(in crate::klib) const fn is_aligned(x: usize, align: usize) -> bool {
     assert!(align != 0);
     x.is_multiple_of(align)
 }
-pub const fn align_usize_up(x: usize, align: usize) -> usize {
+pub(in crate::klib) const fn align_usize_up(x: usize, align: usize) -> usize {
     assert!(align != 0);
     if is_aligned(x, align) {
         return x;
@@ -14,37 +14,37 @@ pub const fn align_usize_up(x: usize, align: usize) -> usize {
     x.checked_add(align - (x % align))
         .expect("alignment overflow")
 }
-pub const fn align_usize_down(x: usize, align: usize) -> usize {
+pub(in crate::klib) const fn align_usize_down(x: usize, align: usize) -> usize {
     assert!(align != 0);
     x - (x % align)
 }
-pub fn is_ptr_aligned<T>(x: *mut T, align: usize) -> bool {
+pub(in crate::klib) fn is_ptr_aligned<T>(x: *mut T, align: usize) -> bool {
     assert!(align != 0);
     x.addr().is_multiple_of(align)
 }
-pub fn align_ptr_up<T>(x: *mut T, align: usize) -> *mut T {
+pub(in crate::klib) fn align_ptr_up<T>(x: *mut T, align: usize) -> *mut T {
     assert!(align != 0);
     x.map_addr(|addr| {
         addr.checked_add((align - (addr % align)) % align)
             .expect("pointer alignment overflow")
     })
 }
-pub fn align_ptr_down<T>(x: *mut T, align: usize) -> *mut T {
+pub(in crate::klib) fn align_ptr_down<T>(x: *mut T, align: usize) -> *mut T {
     assert!(align != 0);
     x.map_addr(|addr| addr - (addr % align))
 }
-pub const fn size_to_blocks(size: usize, block_size: usize) -> usize {
+pub(in crate::klib) const fn size_to_blocks(size: usize, block_size: usize) -> usize {
     assert!(block_size != 0);
     if size.is_multiple_of(block_size) {
         return size / block_size;
     }
     size / block_size + 1
 }
-pub const fn u16le_at(x: &[u8]) -> u32 {
+pub(in crate::klib) const fn u16le_at(x: &[u8]) -> u32 {
     ((x[1] as u32) << 8) | x[0] as u32
 }
 
-pub const fn u32le_at(x: &[u8]) -> u32 {
+pub(in crate::klib) const fn u32le_at(x: &[u8]) -> u32 {
     ((x[3] as u32) << 24) | ((x[2] as u32) << 16) | ((x[1] as u32) << 8) | x[0] as u32
 }
 

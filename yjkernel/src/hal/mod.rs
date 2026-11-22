@@ -4,4 +4,4 @@
 
 mod i586;
 
-pub use i586::Hardware;
+pub(crate) use i586::Hardware;

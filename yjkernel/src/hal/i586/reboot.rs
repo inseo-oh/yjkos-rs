@@ -5,7 +5,7 @@
 use crate::klib::{devlib::HardwarePortIO, hal::Hardware};
 
 // https://wiki.osdev.org/Reboot
-pub fn reboot() {
+pub(in crate::hal) fn reboot() {
     // First we try 8042 KBC reset =============================================
 
     const KBC_DATA: u16 = 0x60;

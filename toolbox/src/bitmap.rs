@@ -58,7 +58,9 @@ pub fn needed_word_count(bits: usize) -> usize {
 }
 
 impl<'a> Bitmap<'a> {
-    pub fn needed_word_count(bits: usize) -> usize { needed_word_count(bits) }
+    pub fn needed_word_count(bits: usize) -> usize {
+        needed_word_count(bits)
+    }
 }
 
 pub struct Bitmap<'a>(pub &'a mut [Word]);

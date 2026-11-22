@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See LICENSE for details.
 
-pub mod pmm;
-pub mod vmm;
+pub(in crate::klib) mod pmm;
+pub(crate) mod vmm;
 
-pub use pmm::PhysicalMemoryManager;
-pub use vmm::VirtualMemoryManager;
+pub(crate) use pmm::PhysicalMemoryManager;
+pub(crate) use vmm::VirtualMemoryManager;

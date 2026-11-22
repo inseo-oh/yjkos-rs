@@ -11,51 +11,51 @@ use crate::{
 };
 use core::ptr::{read_volatile, write_volatile};
 
-pub const COMMON_FLAG_P: u32 = 1 << 0;
-pub const COMMON_FLAG_RW: u32 = 1 << 1;
-pub const COMMON_FLAG_US: u32 = 1 << 2;
-pub const COMMON_FLAG_PWT: u32 = 1 << 3;
-pub const COMMON_FLAG_PCD: u32 = 1 << 4;
-pub const COMMON_FLAG_A: u32 = 1 << 5;
-pub const COMMON_FLAG_D: u32 = 1 << 6;
-pub const COMMON_FLAG_G: u32 = 1 << 8;
+pub(in crate::hal) const COMMON_FLAG_P: u32 = 1 << 0;
+pub(in crate::hal) const COMMON_FLAG_RW: u32 = 1 << 1;
+pub(in crate::hal) const COMMON_FLAG_US: u32 = 1 << 2;
+pub(in crate::hal) const COMMON_FLAG_PWT: u32 = 1 << 3;
+pub(in crate::hal) const COMMON_FLAG_PCD: u32 = 1 << 4;
+pub(in crate::hal) const COMMON_FLAG_A: u32 = 1 << 5;
+pub(in crate::hal) const COMMON_FLAG_D: u32 = 1 << 6;
+pub(in crate::hal) const COMMON_FLAG_G: u32 = 1 << 8;
 
-pub const PDE_FLAG_P: u32 = COMMON_FLAG_P;
-pub const PDE_FLAG_RW: u32 = COMMON_FLAG_RW;
-pub const PDE_FLAG_US: u32 = COMMON_FLAG_US;
-pub const PDE_FLAG_PWT: u32 = COMMON_FLAG_PWT;
-pub const PDE_FLAG_PCD: u32 = COMMON_FLAG_PCD;
-pub const PDE_FLAG_A: u32 = COMMON_FLAG_A;
-pub const PDE_FLAG_D: u32 = COMMON_FLAG_D;
-pub const PDE_FLAG_PS: u32 = 1 << 7;
-pub const PDE_FLAG_G: u32 = COMMON_FLAG_G;
+pub(in crate::hal) const PDE_FLAG_P: u32 = COMMON_FLAG_P;
+pub(in crate::hal) const PDE_FLAG_RW: u32 = COMMON_FLAG_RW;
+pub(in crate::hal) const PDE_FLAG_US: u32 = COMMON_FLAG_US;
+pub(in crate::hal) const PDE_FLAG_PWT: u32 = COMMON_FLAG_PWT;
+pub(in crate::hal) const PDE_FLAG_PCD: u32 = COMMON_FLAG_PCD;
+pub(in crate::hal) const PDE_FLAG_A: u32 = COMMON_FLAG_A;
+pub(in crate::hal) const PDE_FLAG_D: u32 = COMMON_FLAG_D;
+pub(in crate::hal) const PDE_FLAG_PS: u32 = 1 << 7;
+pub(in crate::hal) const PDE_FLAG_G: u32 = COMMON_FLAG_G;
 
-pub const PTE_FLAG_P: u32 = COMMON_FLAG_P;
-pub const PTE_FLAG_RW: u32 = COMMON_FLAG_RW;
-pub const PTE_FLAG_US: u32 = COMMON_FLAG_US;
-pub const PTE_FLAG_PWT: u32 = COMMON_FLAG_PWT;
-pub const PTE_FLAG_PCD: u32 = COMMON_FLAG_PCD;
-pub const PTE_FLAG_A: u32 = COMMON_FLAG_A;
-pub const PTE_FLAG_D: u32 = COMMON_FLAG_D;
-pub const PTE_FLAG_PAT: u32 = 1 << 7;
-pub const PTE_FLAG_G: u32 = COMMON_FLAG_G;
+pub(in crate::hal) const PTE_FLAG_P: u32 = COMMON_FLAG_P;
+pub(in crate::hal) const PTE_FLAG_RW: u32 = COMMON_FLAG_RW;
+pub(in crate::hal) const PTE_FLAG_US: u32 = COMMON_FLAG_US;
+pub(in crate::hal) const PTE_FLAG_PWT: u32 = COMMON_FLAG_PWT;
+pub(in crate::hal) const PTE_FLAG_PCD: u32 = COMMON_FLAG_PCD;
+pub(in crate::hal) const PTE_FLAG_A: u32 = COMMON_FLAG_A;
+pub(in crate::hal) const PTE_FLAG_D: u32 = COMMON_FLAG_D;
+pub(in crate::hal) const PTE_FLAG_PAT: u32 = 1 << 7;
+pub(in crate::hal) const PTE_FLAG_G: u32 = COMMON_FLAG_G;
 
-pub const PAGE_SIZE: usize = 4096;
-pub const ENTRY_SIZE: u32 = 4;
-pub const ENTRY_COUNT: usize = 1024;
+pub(in crate::hal) const PAGE_SIZE: usize = 4096;
+pub(in crate::hal) const ENTRY_SIZE: u32 = 4;
+pub(in crate::hal) const ENTRY_COUNT: usize = 1024;
 
-pub const KERNEL_PDE_START: u32 = 768;
-pub const KERNEL_PDE_COUNT: usize = ENTRY_COUNT - KERNEL_PDE_START as usize - 1;
+pub(in crate::hal) const KERNEL_PDE_START: u32 = 768;
+pub(in crate::hal) const KERNEL_PDE_COUNT: usize = ENTRY_COUNT - KERNEL_PDE_START as usize - 1;
 
-pub const SCRATCH_PDE: u32 = KERNEL_PDE_START + KERNEL_PDE_COUNT as u32 - 1;
-pub const SCRATCH_PTE: u32 = ENTRY_COUNT as u32 - 1;
+pub(in crate::hal) const SCRATCH_PDE: u32 = KERNEL_PDE_START + KERNEL_PDE_COUNT as u32 - 1;
+pub(in crate::hal) const SCRATCH_PTE: u32 = ENTRY_COUNT as u32 - 1;
 
-pub const MAX_MEMORY_PER_PTE: usize = PAGE_SIZE;
-pub const MAX_MEMORY_PER_PDE: usize = MAX_MEMORY_PER_PTE * ENTRY_COUNT;
-pub const KERNEL_AREA_SIZE: usize = MAX_MEMORY_PER_PDE * KERNEL_PDE_COUNT;
+pub(in crate::hal) const MAX_MEMORY_PER_PTE: usize = PAGE_SIZE;
+pub(in crate::hal) const MAX_MEMORY_PER_PDE: usize = MAX_MEMORY_PER_PTE * ENTRY_COUNT;
+pub(in crate::hal) const KERNEL_AREA_SIZE: usize = MAX_MEMORY_PER_PDE * KERNEL_PDE_COUNT;
 
 // PDE for recursive mapping the PD itself
-pub const PAGE_DIR_PDE: u32 = ENTRY_COUNT as u32 - 1;
+pub(in crate::hal) const PAGE_DIR_PDE: u32 = ENTRY_COUNT as u32 - 1;
 
 type PageTable = [u32; ENTRY_COUNT];
 
@@ -100,7 +100,7 @@ fn write_pte(pde_idx: u32, pte_idx: u32, value: u32) {
 }
 
 const KERNEL_SPACE_BASE: usize = make_virtaddr(KERNEL_PDE_START, 0, 0);
-pub const SCRATCH_MAP_BASE: usize = make_virtaddr(SCRATCH_PDE, SCRATCH_PTE, 0);
+pub(in crate::hal) const SCRATCH_MAP_BASE: usize = make_virtaddr(SCRATCH_PDE, SCRATCH_PTE, 0);
 fn kernel_image_address_start() -> usize {
     super::sections::kernel_virtual_address_start()
 }
@@ -235,7 +235,7 @@ fn remap_single_page(virt: *mut u8, flags: klib::mem::vmm::MapFlags, user_access
     }
 }
 
-pub fn emulate(
+pub(in crate::hal) fn emulate(
     virt: *mut u8,
     flags: klib::mem::vmm::MapFlags,
     is_from_user: bool,
@@ -264,7 +264,9 @@ pub fn emulate(
     }
     Ok(klib::PhysicalPtr::new((pt_entry & !0xfff) as usize))
 }
-pub fn virtual_to_physical(virt: *mut u8) -> Result<klib::PhysicalPtr, &'static str> {
+pub(in crate::hal) fn virtual_to_physical(
+    virt: *mut u8,
+) -> Result<klib::PhysicalPtr, &'static str> {
     let pde = pde_index(virt);
     let pte = pte_index(virt);
     let pd_entry = read_pde(pde);
@@ -279,7 +281,7 @@ pub fn virtual_to_physical(virt: *mut u8) -> Result<klib::PhysicalPtr, &'static 
         ((pt_entry & !0xfff) + (virt.addr() as u32 & 0xfff)) as usize,
     ))
 }
-pub fn map(
+pub(in crate::hal) fn map(
     virt_base: *mut u8,
     phys_base: klib::PhysicalPtr,
     page_count: usize,
@@ -292,7 +294,7 @@ pub fn map(
 
     assert_addr_valid(virt_base.addr(), page_count);
     assert_physical_addr_valid(phys_base, page_count);
-    assert!(klib::miscmath::is_aligned(phys_base.addr(), PAGE_SIZE));
+    assert!(toolbox::miscmath::is_aligned(phys_base.addr(), PAGE_SIZE));
     'attempt: {
         if !flags.read {
             ret = Err("attempted to create non-readable page");
@@ -327,7 +329,7 @@ pub fn map(
     }
     ret
 }
-pub fn remap(
+pub(in crate::hal) fn remap(
     virt_base: *mut u8,
     page_count: usize,
     flags: klib::mem::vmm::MapFlags,
@@ -349,7 +351,7 @@ pub fn remap(
     }
     Ok(())
 }
-pub fn unmap(virt_base: *mut u8, page_count: usize) -> Result<(), &'static str> {
+pub(in crate::hal) fn unmap(virt_base: *mut u8, page_count: usize) -> Result<(), &'static str> {
     assert!(!super::Hardware::irq_enabled());
     assert_addr_valid(virt_base.addr(), page_count);
     for i in 0..page_count {
@@ -366,10 +368,10 @@ pub fn unmap(virt_base: *mut u8, page_count: usize) -> Result<(), &'static str> 
     // TODO: Clean-up unused PD entries
     Ok(())
 }
-pub fn scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) {
+pub(in crate::hal) fn scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) {
     assert!(!super::Hardware::irq_enabled());
     assert_physical_addr_valid(phys_base, 1);
-    assert!(klib::miscmath::is_aligned(phys_base.addr(), PAGE_SIZE));
+    assert!(toolbox::miscmath::is_aligned(phys_base.addr(), PAGE_SIZE));
     let pde = SCRATCH_PDE;
     let pte = SCRATCH_PTE;
     let old_pte = read_pte(pde, pte);
@@ -391,7 +393,7 @@ pub fn scratch_map(phys_base: klib::PhysicalPtr, no_cache: bool) {
         unsafe { super::invlpg(SCRATCH_MAP_BASE) };
     }
 }
-pub fn write_protect_kernel_text() {
+pub(in crate::hal) fn write_protect_kernel_text() {
     remap(
         super::sections::kernel_text_start() as *mut u8,
         (super::sections::kernel_text_end() - super::sections::kernel_text_start()) / PAGE_SIZE,
@@ -403,7 +405,7 @@ pub fn write_protect_kernel_text() {
     )
     .unwrap();
 }
-pub fn write_protect_after_early_init() {
+pub(in crate::hal) fn write_protect_after_early_init() {
     remap(
         super::sections::kernel_ro_after_early_init_start() as *mut u8,
         (super::sections::kernel_ro_after_early_init_end()
@@ -422,7 +424,7 @@ unsafe extern "C" {
     static hal_i586_stack_bottom_trap: u8;
 }
 
-pub fn init() {
+pub(in crate::hal) fn init() {
     // Setup "stack bottom trap", which basically forces system to triple-fault immediately when kernel runs out of stack memory.
     unmap(
         core::ptr::addr_of!(hal_i586_stack_bottom_trap) as *mut u8,
@@ -437,13 +439,13 @@ pub fn init() {
     .unwrap();
 }
 
-pub struct AddressSpace {
+pub(crate) struct AddressSpace {
     pde_list: Vec<u32>,
 }
 
 impl AddressSpace {
-    pub fn new(base: *mut u8, page_count: usize, is_user: bool) -> Self {
-        assert!(klib::miscmath::is_ptr_aligned(
+    pub(in crate::hal) fn new(base: *mut u8, page_count: usize, is_user: bool) -> Self {
+        assert!(toolbox::miscmath::is_ptr_aligned(
             base,
             super::Hardware::PAGE_SIZE
         ));

@@ -4,7 +4,7 @@
 
 use core::arch::asm;
 
-pub unsafe fn enter_user_mode(entry: usize, user_stack: usize) -> ! {
+pub(in crate::hal) unsafe fn enter_user_mode(entry: usize, user_stack: usize) -> ! {
     unsafe {
         asm!(
             "cli",

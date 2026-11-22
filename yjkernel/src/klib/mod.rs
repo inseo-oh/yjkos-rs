@@ -2,24 +2,25 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // See LICENSE for details.
 
-pub mod console;
+pub(crate) mod console;
+pub(crate) mod devlib;
+pub(crate) mod hal;
+pub(crate) mod irq;
+pub(crate) mod mem;
+pub(crate) mod syscall;
+pub(crate) mod tasks;
+pub(crate) mod ticktime;
+pub(crate) mod traps;
+
+pub(in crate::klib) mod diag;
+pub(in crate::klib) mod elf_loader;
+pub(in crate::klib) mod physptr;
+
 mod cstring;
-pub mod devlib;
-pub mod diag;
-pub mod elf_loader;
-pub mod hal;
-pub mod irq;
-pub mod mem;
-pub mod physptr;
-pub mod syscall;
-pub mod tasks;
-pub mod ticktime;
-pub mod traps;
 
 use core::mem::forget;
 
-pub use physptr::PhysicalPtr;
-pub use toolbox::{Bitmap, bitmap, list, miscmath};
+pub(crate) use physptr::PhysicalPtr;
 
 #[macro_export]
 macro_rules! print {
@@ -41,12 +42,12 @@ macro_rules! println {
     };
 }
 
-pub struct KGlobals<HW: hal::Hardware> {
-    pub trap_manager: irq::Mutex<HW, traps::TrapManager<HW>>,
-    pub heap: irq::Mutex<HW, toolbox::Heap>,
-    pub pmm: irq::Mutex<HW, mem::PhysicalMemoryManager<HW>>,
-    pub vmm: irq::Mutex<HW, mem::VirtualMemoryManager<HW>>,
-    pub sched: irq::Mutex<HW, tasks::Scheduler<HW>>,
+pub(crate) struct KGlobals<HW: hal::Hardware> {
+    pub(crate) trap_manager: irq::Mutex<HW, traps::TrapManager<HW>>,
+    pub(crate) heap: irq::Mutex<HW, toolbox::Heap>,
+    pub(crate) pmm: irq::Mutex<HW, mem::PhysicalMemoryManager<HW>>,
+    pub(crate) vmm: irq::Mutex<HW, mem::VirtualMemoryManager<HW>>,
+    pub(crate) sched: irq::Mutex<HW, tasks::Scheduler<HW>>,
 }
 // SAFETY: the kernel is uniprocessor. Every mutable field is accessed through
 // an IRQ mutex, which prevents both task preemption and interrupt reentry while
@@ -54,7 +55,7 @@ pub struct KGlobals<HW: hal::Hardware> {
 unsafe impl<HW: hal::Hardware> Sync for KGlobals<HW> {}
 
 impl<HW: hal::Hardware> KGlobals<HW> {
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             trap_manager: irq::Mutex::new(traps::TrapManager::new()),
             heap: irq::Mutex::new(toolbox::Heap::new()),
@@ -71,7 +72,7 @@ impl<HW: hal::Hardware> Default for KGlobals<HW> {
     }
 }
 
-pub fn kmain<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) -> ! {
+pub(crate) fn kmain<HW: hal::Hardware>(kglobals: &'static KGlobals<HW>) -> ! {
     init(kglobals);
     let mut shell = diag::Shell::new(kglobals);
     shell.run()

@@ -28,25 +28,22 @@ impl<HW: klib::hal::Hardware> Queue<HW> {
     }
 }
 
-/// An owned thread switch prepared by the scheduler.
-///
 /// The IRQ guard remains on the outgoing thread's stack across the switch and
 /// is released when that thread resumes.
-pub struct SwitchRequest<HW: klib::hal::Hardware> {
+pub(crate) struct SwitchRequest<HW: klib::hal::Hardware> {
     from: klib::tasks::thread::ThreadHandle<HW>,
     to: klib::tasks::thread::ThreadHandle<HW>,
     _irq_disable: klib::irq::DisableGuard<HW>,
 }
 
 impl<HW: klib::hal::Hardware> SwitchRequest<HW> {
-    pub fn switch(self) {
+    pub(crate) fn switch(self) {
         let Self {
             from,
             to,
             _irq_disable,
         } = self;
-        // Keep `_irq_disable` alive across the context switch. It is dropped
-        // only when this thread eventually resumes here.
+        // Keep `_irq_disable` alive across the context switch. It is dropped only when this thread eventually resumes here.
         unsafe { klib::tasks::thread::Thread::switch(&from, &to) };
         drop(_irq_disable);
     }
@@ -57,7 +54,7 @@ impl<HW: klib::hal::Hardware> SwitchRequest<HW> {
 
 const KERNEL_PROCESS_PRIORITY: i8 = 20;
 
-pub struct Scheduler<HW: klib::hal::Hardware> {
+pub(crate) struct Scheduler<HW: klib::hal::Hardware> {
     // Each queue has associated priority, and when selecting the next thread we
     // start from highest priority, but every time a queue is selected, remaining
     // opportunities is decreased.
@@ -73,14 +70,14 @@ pub struct Scheduler<HW: klib::hal::Hardware> {
     kernel_process: Option<klib::tasks::process::ProcessHandle<HW>>,
 }
 
-pub enum ThreadState {
+pub(in crate::klib) enum ThreadState {
     Running,
     Queued,
     MutexWait,
 }
 
 impl<HW: klib::hal::Hardware> Scheduler<HW> {
-    pub const fn new() -> Self {
+    pub(in crate::klib) const fn new() -> Self {
         Self {
             queues: Vec::new(),
             current_queue: None,
@@ -89,14 +86,14 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             kernel_process: None,
         }
     }
-    pub fn kernel_process(&self) -> klib::tasks::process::ProcessHandle<HW> {
+    pub(in crate::klib) fn kernel_process(&self) -> klib::tasks::process::ProcessHandle<HW> {
         self.kernel_process
             .as_ref()
             .expect("kernel process not initialized yet")
             .clone()
     }
 
-    pub fn threads(
+    pub(in crate::klib) fn threads(
         &self,
     ) -> impl Iterator<Item = (klib::tasks::thread::ThreadHandle<HW>, ThreadState)> {
         let mut handled_running_thread = false;
@@ -134,7 +131,9 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         })
     }
 
-    pub fn processes(&self) -> impl Iterator<Item = klib::tasks::process::ProcessHandle<HW>> {
+    pub(in crate::klib) fn processes(
+        &self,
+    ) -> impl Iterator<Item = klib::tasks::process::ProcessHandle<HW>> {
         let mut threads = self.threads();
         let mut earlier_thread_count = 0;
         core::iter::from_fn(move || {
@@ -329,7 +328,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         }
         result
     }
-    pub fn running_thread(&self) -> &klib::tasks::thread::ThreadHandle<HW> {
+    pub(in crate::klib) fn running_thread(&self) -> &klib::tasks::thread::ThreadHandle<HW> {
         self.running_thread
             .as_ref()
             .expect("there's no running thread")
@@ -355,7 +354,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
             _irq_disable: irq_disable,
         }
     }
-    pub fn queue(&mut self, thread: klib::tasks::thread::ThreadHandle<HW>) {
+    pub(in crate::klib) fn queue(&mut self, thread: klib::tasks::thread::ThreadHandle<HW>) {
         let _irq_disable = klib::irq::DisableGuard::<HW>::lock();
         let queue = self.get_queue(thread.borrow().process().borrow().priority);
         queue.borrow_mut().threads.insert(0, thread);
@@ -365,7 +364,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
     /// The request carries the caller's IRQ state across the handoff. The
     /// caller must switch stacks only after this method returns, so no mutable
     /// scheduler borrow remains on the outgoing thread's stack.
-    pub fn prepare_schedule(&mut self) -> Option<SwitchRequest<HW>> {
+    pub(crate) fn prepare_schedule(&mut self) -> Option<SwitchRequest<HW>> {
         let irq_disable = klib::irq::DisableGuard::<HW>::lock();
         if let Some(next_thread) = self.pick_next_task() {
             // Note that it is safe to call prepare_schedule() before calling init_initial_process(),
@@ -386,7 +385,7 @@ impl<HW: klib::hal::Hardware> Scheduler<HW> {
         }
         None
     }
-    pub fn init_initial_process(
+    pub(in crate::klib) fn init_initial_process(
         &mut self,
         kglobals: &'static klib::KGlobals<HW>,
         kernel_address_space: klib::mem::vmm::AddressSpaceHandle<HW>,

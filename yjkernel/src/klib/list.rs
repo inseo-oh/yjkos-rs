@@ -10,17 +10,17 @@ use core::{
     ptr::NonNull,
 };
 
-pub type NodePtr<T> = NonNull<Node<T>>;
+pub(in crate::klib) type NodePtr<T> = NonNull<Node<T>>;
 
 #[repr(C)]
-pub struct Node<T> {
+pub(in crate::klib) struct Node<T> {
     prev: Option<NodePtr<T>>,
     next: Option<NodePtr<T>>,
-    pub data: T,
+    pub(in crate::klib) data: T,
     _pin: PhantomPinned,
 }
 impl<T> Node<T> {
-    pub fn new(data: T) -> Self {
+    pub(in crate::klib) fn new(data: T) -> Self {
         Self {
             prev: None,
             next: None,
@@ -28,19 +28,19 @@ impl<T> Node<T> {
             _pin: Default::default(),
         }
     }
-    pub fn to_node_ptr(node: Pin<&mut Node<T>>) -> NodePtr<T> {
+    pub(in crate::klib) fn to_node_ptr(node: Pin<&mut Node<T>>) -> NodePtr<T> {
         NonNull::from(node.as_ref().get_ref())
     }
-    pub fn prev(&self) -> Option<NodePtr<T>> {
+    pub(in crate::klib) fn prev(&self) -> Option<NodePtr<T>> {
         self.prev
     }
-    pub fn prev_mut(&mut self) -> Option<NodePtr<T>> {
+    pub(in crate::klib) fn prev_mut(&mut self) -> Option<NodePtr<T>> {
         self.prev
     }
-    pub fn next(&self) -> Option<NodePtr<T>> {
+    pub(in crate::klib) fn next(&self) -> Option<NodePtr<T>> {
         self.next
     }
-    pub fn next_mut(&mut self) -> Option<NodePtr<T>> {
+    pub(in crate::klib) fn next_mut(&mut self) -> Option<NodePtr<T>> {
         self.next
     }
 }
@@ -57,14 +57,14 @@ impl<T> DerefMut for Node<T> {
     }
 }
 
-pub struct UnsafeList<T> {
+pub(in crate::klib) struct UnsafeList<T> {
     front: Option<NodePtr<T>>,
     back: Option<NodePtr<T>>,
     _data: PhantomData<T>,
 }
 
 impl<T> UnsafeList<T> {
-    pub const fn new() -> Self {
+    pub(in crate::klib) const fn new() -> Self {
         Self {
             front: None,
             back: None,
@@ -72,16 +72,16 @@ impl<T> UnsafeList<T> {
         }
     }
 
-    pub fn front(&self) -> Option<NodePtr<T>> {
+    pub(in crate::klib) fn front(&self) -> Option<NodePtr<T>> {
         self.front
     }
-    pub fn front_mut(&mut self) -> Option<NodePtr<T>> {
+    pub(in crate::klib) fn front_mut(&mut self) -> Option<NodePtr<T>> {
         self.front
     }
-    pub fn back(&self) -> Option<NodePtr<T>> {
+    pub(in crate::klib) fn back(&self) -> Option<NodePtr<T>> {
         self.back
     }
-    pub fn back_mut(&mut self) -> Option<NodePtr<T>> {
+    pub(in crate::klib) fn back_mut(&mut self) -> Option<NodePtr<T>> {
         self.back
     }
 
@@ -92,7 +92,7 @@ impl<T> UnsafeList<T> {
     /// - while connected, its data is accessed through this list's iterators.
     /// - no reference obtained through another handle to this node's data is kept alive
     ///   while an `IterMut` item for this node is alive.
-    pub unsafe fn insert_front(&mut self, node: Pin<&mut Node<T>>) -> NodePtr<T> {
+    pub(in crate::klib) unsafe fn insert_front(&mut self, node: Pin<&mut Node<T>>) -> NodePtr<T> {
         let mut node_p = Node::to_node_ptr(node);
         if let Some(front) = self.front.as_mut() {
             unsafe { front.as_mut().prev = Some(node_p) };
@@ -116,7 +116,7 @@ impl<T> UnsafeList<T> {
     ///   while an `IterMut` item for this node is alive.
     ///
     /// Also, no one must be mutating the list nodes connected to this list at the moment, such as IterMut.
-    pub unsafe fn insert_back(&mut self, node: Pin<&mut Node<T>>) -> NodePtr<T> {
+    pub(in crate::klib) unsafe fn insert_back(&mut self, node: Pin<&mut Node<T>>) -> NodePtr<T> {
         let mut node_p = Node::to_node_ptr(node);
         if let Some(back) = self.back.as_mut() {
             unsafe { back.as_mut().next = Some(node_p) };
@@ -143,7 +143,7 @@ impl<T> UnsafeList<T> {
     /// - is a valid pointer to a node in this list, and not the same as node.
     ///
     /// Also, no one must be mutating the list nodes connected to this list at the moment, such as IterMut.
-    pub unsafe fn insert_after(
+    pub(in crate::klib) unsafe fn insert_after(
         &mut self,
         mut after_p: NodePtr<T>,
         node: Pin<&mut Node<T>>,
@@ -177,7 +177,7 @@ impl<T> UnsafeList<T> {
     /// - is a valid pointer to a node in this list, and not the same as node.
     ///
     /// Also, no one must be mutating the list nodes connected to this list at the moment, such as IterMut.
-    pub unsafe fn insert_before(
+    pub(in crate::klib) unsafe fn insert_before(
         &mut self,
         mut before_p: NodePtr<T>,
         node: Pin<&mut Node<T>>,
@@ -204,7 +204,7 @@ impl<T> UnsafeList<T> {
     /// - no reference to this node or its data is live while its links are modified.
     ///
     /// Also, no one must be mutating the list nodes connected to this list at the moment, such as IterMut.
-    pub unsafe fn remove(&mut self, mut node_p: NodePtr<T>) {
+    pub(in crate::klib) unsafe fn remove(&mut self, mut node_p: NodePtr<T>) {
         let node = unsafe { node_p.as_mut() };
         if let Some(mut prev) = node.prev {
             unsafe { prev.as_mut() }.next = node.next;
@@ -223,13 +223,13 @@ impl<T> UnsafeList<T> {
         node.next = None;
     }
 
-    pub fn iter(&self) -> Iter<'_, T> {
+    pub(in crate::klib) fn iter(&self) -> Iter<'_, T> {
         Iter {
             next_item: self.front,
             _list: PhantomData,
         }
     }
-    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+    pub(in crate::klib) fn iter_mut(&mut self) -> IterMut<'_, T> {
         IterMut {
             next_item: self.front,
             _list: PhantomData,
@@ -260,7 +260,7 @@ impl<'a, T> IntoIterator for &'a mut UnsafeList<T> {
     }
 }
 
-pub struct Iter<'a, T> {
+pub(in crate::klib) struct Iter<'a, T> {
     next_item: Option<NodePtr<T>>,
     _list: PhantomData<&'a UnsafeList<T>>,
 }
@@ -273,7 +273,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
         Some(unsafe { &current.as_ref().data })
     }
 }
-pub struct IterMut<'a, T> {
+pub(in crate::klib) struct IterMut<'a, T> {
     next_item: Option<NodePtr<T>>,
     _list: PhantomData<&'a mut UnsafeList<T>>,
 }

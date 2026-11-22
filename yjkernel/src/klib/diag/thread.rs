@@ -9,7 +9,7 @@ use crate::{
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const THREAD_COUNT: usize = 10;
-pub const DEFAULT_DURATION_SECS: u32 = 60;
+pub(in crate::klib) const DEFAULT_DURATION_SECS: u32 = 60;
 const TICKS_PER_SEC: u32 = 1000;
 const STALL_TIMEOUT_SECS: u8 = 10;
 
@@ -108,7 +108,7 @@ fn return_worker(_data: usize) {}
 ///
 /// This diagnostic can run only once per boot because the scheduler does not
 /// yet reclaim finished thread stacks.
-pub fn run<HW: Hardware>(
+pub(in crate::klib) fn run<HW: Hardware>(
     kglobals: &'static klib::KGlobals<HW>,
     duration_secs: u32,
 ) -> Result<(), &'static str> {
