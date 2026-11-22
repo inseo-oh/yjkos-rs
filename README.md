@@ -30,3 +30,19 @@ With QEMU installed:
 ```sh
 make run
 ```
+
+## Recommended settings for VSCode (JSON)
+
+```json
+{
+    "rust-analyzer.cargo.target": "support/build/i586-yjkos.json",
+    "rust-analyzer.cargo.extraArgs": [
+        "-Zjson-target-spec",
+        "-Zbuild-std=core,alloc"
+    ],
+    "rust-analyzer.cargo.extraEnv": {
+        "RUSTUP_TOOLCHAIN": "nightly"
+    },
+    "rust-analyzer.cargo.allTargets": false
+}
+```
