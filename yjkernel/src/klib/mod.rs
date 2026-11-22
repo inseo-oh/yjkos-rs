@@ -25,20 +25,18 @@ pub(crate) use physptr::PhysicalPtr;
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        {
-            _ = $crate::klib::console::write(::core::format_args!($($arg)*))
-        }
+        { let _ = $crate::klib::console::write(::core::format_args!($($arg)*)); }
     };
 }
 
 #[macro_export]
 macro_rules! println {
     () => {
-        _ = $crate::print!("\n")
+        { let _ = $crate::print!("\n"); }
     };
 
     ($($arg:tt)*) => {
-        _ = $crate::print!("{}\n", ::core::format_args!($($arg)*))
+        {let _ = $crate::print!("{}\n", ::core::format_args!($($arg)*));}
     };
 }
 
