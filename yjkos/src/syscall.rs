@@ -94,6 +94,9 @@ pub fn vm_alloc_object(
     if flags.exec {
         flags_val |= VM_ALLOC_FLAG_EXEC;
     }
+    if flags.no_cache {
+        flags_val |= VM_ALLOC_FLAG_NO_CACHE;
+    }
     if phys_base.is_none() {
         flags_val |= VM_ALLOC_FLAG_ALLOC_PHYS;
     }
@@ -122,6 +125,9 @@ pub fn vm_alloc_object_at(
     }
     if flags.exec {
         flags_val |= VM_ALLOC_FLAG_EXEC;
+    }
+    if flags.no_cache {
+        flags_val |= VM_ALLOC_FLAG_NO_CACHE;
     }
     if phys_base.is_none() {
         flags_val |= VM_ALLOC_FLAG_ALLOC_PHYS;
